@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "check:i18n": "node scripts/check-i18n.mjs",
+    "check:copy": "node scripts/check-home-copy.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -22,12 +22,19 @@ export const EN = 'en-US'
 /** 默认中文。后端 `messages.properties` 的默认 locale 也是中文，两边一致。 */
 export const DEFAULT_LOCALE = ZH
 
-/** 设置抽屉里那组选项。顺序就是显示顺序。 */
+/**
+ * 语言选项。顺序就是显示顺序。
+ *
+ * 两个标签是**同一份取值**的两种写法，不是两套语言：`label` 给设置抽屉里那个正经的设置项，
+ * `short` 给顶栏那颗胶囊（`LocaleSwitch.vue`）——那里要和品牌名、用户菜单挤一行，
+ * 只放得下「中文 / EN」。两个组件都从这里取，取值本身也就只有一份。
+ *
+ * 标签都不翻译：语言名用它自己的语言写。用户看不懂当前界面语言时，
+ * 一个「English」比一个「英语」有用得多，这是各家设置页的通行做法。
+ */
 export const LOCALE_OPTIONS = [
-  { value: ZH, label: '简体中文' },
-  // 语言名用它自己的语言写（不写成「英语」）：用户看不懂当前语言时，
-  // 一个「English」比一个「英语」有用得多，这是各家设置页的通行做法
-  { value: EN, label: 'English' },
+  { value: ZH, label: '简体中文', short: '中文' },
+  { value: EN, label: 'English', short: 'EN' },
 ]
 
 export const i18n = createI18n({

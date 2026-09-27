@@ -1,5 +1,6 @@
 package com.purify.purifyaiagent.prompt;
 
+import com.purify.purifyaiagent.config.PromptProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.core.io.Resource;
@@ -7,7 +8,9 @@ import org.springframework.core.io.Resource;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,7 +18,7 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 中英两套提示词模板的变量集必须一模一样。
+ * 改提示词时的安全网：中英两套模板必须成对，而且每一份都要真的渲染得动。
  *
  * <h2>为什么需要一个测试盯着这件事</h2>
  *
@@ -31,8 +34,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>反过来也一样：英文模板里多写了一个占位符、而调用点没传，同样是英文用户先炸。
  *
- * <p>所以这里把两边的占位符集合直接比一次。这个测试跑起来不需要 Spring 上下文、
- * 不连任何外部服务，是纯文本比对——按本项目的约定，这类测试可以随便跑。
+ * <p>所以这里做两件事：把两边的占位符集合比一次，再把 8 个文件都渲染一遍
+ * （见 {@link #每个模板都要能渲染出来()}——它管的是另一类错，比如正文里混进了一个
+ * 多余的半角花括号）。这个测试跑起来不需要 Spring 上下文、不连任何外部服务，
+ * 是纯文本比对加字符串渲染——按本项目的约定，这类测试可以随便跑。
  *
  * <h2>怎么加新模板</h2>
  *
@@ -95,6 +100,45 @@ class PromptTemplateParityTest {
             assertThat((double) han / Math.max(1, en.length()))
                     .as("英文模板 %s 里汉字占比过高（%d 个），看起来是复制了中文那份但没翻", pair[1], han)
                     .isLessThan(0.05);
+        }
+    }
+
+    /**
+     * 每个模板都要渲染得动。
+     *
+     * <p>{@link #中英模板的占位符必须一一对应()} 只管两份模板彼此一致，管不了模板本身：
+     * StringTemplate 的解析与渲染是**懒**的，正文里混进一个多余或没闭合的半角花括号
+     * （比如想写 JSON 示例、或者打错了一个 {@code {}），改提示词那天不会有任何反应——
+     * 要等第一个请求打进来才抛。而「只改文案」恰恰是最像「不用跑测试」的一类改动。
+     *
+     * <p>变量按**模板自己声明的那些**补一个占位值，不另立一份清单：
+     * 加占位符的人不用记得回来改这里，这个测试也就不会烂成一句谎话。
+     * 它验的是「渲染得动、且没有剩下没替换的占位符」，不是渲染成什么样。
+     */
+    @Test
+    void 每个模板都要能渲染出来() throws IOException {
+        PromptTemplateLoader loader = new PromptTemplateLoader(new PromptProperties());
+
+        for (String[] pair : PAIRS) {
+            for (String name : pair) {
+                Set<String> declared = placeholdersOf(read(name));
+
+                Map<String, Object> variables = new LinkedHashMap<>();
+                declared.forEach(variable -> variables.put(variable, "占位值"));
+
+                String rendered = loader.render(name, variables);
+
+                for (String variable : declared) {
+                    assertThat(rendered)
+                            .as("模板 %s 渲染之后还留着未替换的 {%s}："
+                                    + "说明这个占位符在 StringTemplate 眼里不是变量"
+                                    + "（多半是正文里混进了半角花括号）", name, variable)
+                            .doesNotContain("{" + variable + "}");
+                }
+                assertThat(rendered.trim())
+                        .as("模板 %s 渲染出来是空的", name)
+                        .isNotEmpty();
+            }
         }
     }
 

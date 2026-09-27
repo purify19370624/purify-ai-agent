@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import AppIcon from '../components/AppIcon.vue'
+import LocaleSwitch from '../components/LocaleSwitch.vue'
 import UserMenu from '../components/UserMenu.vue'
 import * as auth from '../auth.js'
 import { SLIM, MANUS } from '../chatConfig.js'
@@ -44,6 +45,9 @@ const isAdmin = computed(() => auth.isAdmin())
  * 这件事依赖的是响应式，不是实例化时机——写成 computed 才是有保证的那一个。
  *
  * 链路名（轻语 / PurifyManus）现在是语言包里的，键名就是链路自己的 `link`。
+ * 卡片上那两行说明（`desc` / `meta`）的写法受首页那条规矩约束：
+ * **面向使用者，不出现框架名和「链路 / 索引 / 向量检索 / MCP」这类内部词**，
+ * 规则和理由写在 `i18n` 里 `home` 那一块的开头。
  */
 const entries = computed(() => [
   {
@@ -125,6 +129,11 @@ function trackPointer(e) {
         <!-- 知识库只对超级用户显示。未登录的访客也不该看到它：
              点进去先被守卫拦到登录页，登录完发现还是没有权限，白跑一趟 -->
         <RouterLink v-if="isAdmin" to="/knowledge">{{ $t('home.navKnowledge') }}</RouterLink>
+        <!-- 语言切换放这儿而不是塞进用户菜单：语言是「还没登录的人也可能想改」的东西
+             （英文访客落地第一件事就是切语言），而用户菜单要登录后才完整。
+             窄屏下 .nav-side 的链接会被藏掉，这一颗留着——它是移动端除了设置抽屉之外
+             唯一的语言入口 -->
+        <LocaleSwitch />
         <UserMenu />
       </nav>
     </header>
@@ -380,10 +389,25 @@ function trackPointer(e) {
 
 .slogan {
   margin-top: 24px;
-  font-size: clamp(34px, 6.2vw, 62px);
+  /*
+   * 这一行的字号是**按内容长度定的**，不是审美定的。
+   *
+   * 它从一句八个字的口号（「先查清楚，再回答」）换成了「品牌名 · 这东西是什么」，
+   * 长度翻了一倍多，而瓶颈在英文那条（`Qingyu · AI health advisor & agent platform`，
+   * 43 个字符）：原来的 clamp 上限 62px 下它要 1300px 以上才排得下，
+   * 1280 宽的屏上会折成两行 62px 的大字，占掉 150px 高度——那是「排版坏了」的样子，
+   * 不是「换行了」。所以上限收到 44px：1440 的屏上英文约 950px、中文约 620px，
+   * 都留得下余量。
+   *
+   * `text-wrap: balance` 是给窄屏兜底的：手机上该折还是折，但两行长短会匀一些，
+   * 不会出现第一行只有「轻语 ·」、第二行拖一大截。line-height 也从 1.12 放到 1.2 ——
+   * 中英混排折行时 1.12 太挤。
+   */
+  font-size: clamp(22px, 3.4vw, 44px);
   font-weight: 700;
   letter-spacing: -0.035em;
-  line-height: 1.12;
+  line-height: 1.2;
+  text-wrap: balance;
   color: var(--ink);
 }
 
@@ -648,6 +672,12 @@ function trackPointer(e) {
      但用户菜单必须留着：那是移动端唯一的登录/退出入口 */
   .nav-side > a {
     display: none;
+  }
+  /* 藏掉链接之后这一行还剩「语言胶囊 + 用户菜单」，22px 的间距在一行里偏宽，
+     收紧到 12px：手机上用户菜单本来就宽（头像 + 名字 + 箭头），
+     留够余量它才不会被挤出屏幕 */
+  .nav-side {
+    gap: 12px;
   }
 }
 

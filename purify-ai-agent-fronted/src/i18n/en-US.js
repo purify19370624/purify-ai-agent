@@ -30,28 +30,55 @@ export default {
     logout: 'Sign out',
   },
 
+  /*
+   * Home page copy speaks to the **person using it**, not the person who built it:
+   * no framework names, no port numbers, no tech stack, and none of “chain / index /
+   * vector search / MCP / multi-step” — words that only mean something if you have
+   * read this repo.
+   *
+   * Write it the way someone would **say** it, not the way a spec sheet states it:
+   * “ask about food, exercise or weight” beats “supports Q&A across the diet, exercise
+   * and weight-management domains”; “says so when it can’t find it” beats “has
+   * uncertainty-expression capability”. If a line doesn’t sound like speech, it isn’t
+   * finished.
+   *
+   * The other rule is **don’t oversell**: “looks things up before answering” is here
+   * because retrieval really does run before the answer (when a category keyword hits,
+   * see purify.rag.router), “won’t invent a number” is here because the prompt says so,
+   * and “not medical advice” is here because all three system prompts refuse to
+   * diagnose. Any praise that can’t be traced to that code has no business on this page.
+   */
   home: {
     navManus: 'PurifyManus',
     navKnowledge: 'Knowledge base',
-    chip: 'Built on Spring AI · one talks, one gets things done',
-    slogan: 'Look it up first, then answer',
-    lede: 'Qingyu checks the knowledge base before answering a health question; PurifyManus researches before it acts. If they can’t find it, they say so — no guessing.',
+    // Screen-reader label for the language pill in the top bar; it's never drawn
+    localeSwitch: 'Switch language',
+    chip: 'It chats with you, and it gets things done',
+    // Same line as the Chinese one: “brand · what this is”. From here on **Qingyu is the
+    // platform name** (it used to name only the health-advisor chain), so the lede and
+    // cards below have to be careful which sense they mean. This is also the longest
+    // line on the page — the headline size cap in HomeView is set so it stays on one line
+    slogan: 'Qingyu · AI health advisor & agent platform',
+    lede: 'Ask Qingyu about food, exercise or losing weight. Ask PurifyManus to get something done. Both look things up first, and both say so when they come up empty instead of making something up.',
     cta: 'Start chatting',
-    ctaNote: 'Chat with Qingyu · a weight-loss advisor that checks the knowledge base first',
+    ctaNote: 'Chat with Qingyu · just tell it your height, weight and goal',
     entries: 'Other entry points',
     footChat: 'Chat',
     footKnowledge: 'Knowledge base',
-    footDocs: 'Documents',
-    footSearch: 'Search check',
+    footDocs: 'Upload and manage files',
+    footSearch: 'Try a search',
     footAbout: 'About',
-    footAboutText: 'Vue 3 + Vite on the front end, Spring Boot + Spring AI on the back, vector search on pgvector.',
-    footDeploy: 'Self-hosted · single port 8080',
-    cardSlim: 'A weight-loss advisor. It checks the knowledge base before answering, and says so when it finds nothing — no making things up.',
-    cardSlimMeta: 'Knowledge retrieval · one question at a time',
-    cardManus: 'It can research, call tools and write files, working a task through step by step. When it needs more from you, it stops and asks.',
-    cardManusMeta: 'Tool calling · MCP · self-checking loop',
-    cardKnowledge: 'Upload documents to index them, see how each one was split, and try a search yourself — this is what the chat queries.',
-    cardKnowledgeMeta: 'Indexing · vector search · search check',
+    footAboutText: 'It talks health with you, and it gets things done for you.',
+    // The footer fine print no longer carries the tech stack — framework names and port
+    // numbers mean nothing to a user, and the repo documents them anyway. What goes here
+    // is something that actually helps: all three system prompts refuse to diagnose
+    footDeploy: 'General guidance only — not medical advice',
+    cardSlim: 'Your weight-loss advisor. Ask it about food, exercise or weight — it looks things up before answering, and when it can’t find something it says so instead of inventing a number.',
+    cardSlimMeta: 'Chat anytime · ask anything about weight',
+    cardManus: 'Hand it a job — research, planning, files — and it works through it for you. When it needs more from you, it stops and asks instead of guessing.',
+    cardManusMeta: 'Researches and does the work · asks when unsure',
+    cardKnowledge: 'Bring your files in and the chat can look them up. See how each one was split apart, and search a sentence yourself to check what comes back.',
+    cardKnowledgeMeta: 'Upload files · try a search',
   },
 
   auth: {
@@ -131,7 +158,10 @@ export default {
     slim: {
       title: 'Qingyu',
       welcome: 'What’s on your mind?',
-      intro: 'I’m Qingyu. Tell me your situation in one line — height, weight, how active you are day to day, what you’re aiming for — and I’ll lay out something concrete.',
+      // This bubble is also teaching the user how to use the app. It used to say “tell me your
+      // height, weight and goal, and I’ll lay out a plan” — which set “hand over your data first”
+      // as the rule. Now it mirrors the prompt’s answer-first rule
+      intro: 'I’m Qingyu. Ask me anything about food, exercise or weight — you don’t need to give me your height and weight first. I’ll answer, and if I really need your numbers I’ll ask one question at the end.',
       examples: [
         'I’m 175cm, 80kg, desk job, want to get down to 70kg — how should I plan it?',
         'Is walking 10,000 steps a day enough?',
@@ -144,7 +174,9 @@ export default {
     manus: {
       title: 'PurifyManus',
       welcome: 'Give me a task',
-      intro: 'I can check the weather, research things, read and write files, and work out what to do next on my own. When I need more from you, I’ll stop and ask rather than guess.',
+      // “Do first, ask later” belongs here too: the old line only said “when I need more from you,
+      // I’ll stop and ask”, which reads like asking comes before work
+      intro: 'I can check the weather, research things, read and write files, and work out what to do next on my own. I’ll do what I can and hand it over, then ask for the one thing I’m missing — I won’t guess.',
       examples: [
         'Is today good for a run in Hangzhou? If so, write it to a file for me',
         'How do I get from Hangzhou East Station to West Lake? Check the weather along the way too',
