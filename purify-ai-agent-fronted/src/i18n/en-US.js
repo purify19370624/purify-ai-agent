@@ -25,6 +25,8 @@ export default {
     login: 'Sign in',
     admin: 'Super admin',
     knowledge: 'Knowledge base',
+    profile: 'About me',
+    weight: 'Weight trend',
     resources: 'Library',
     settings: 'Settings',
     logout: 'Sign out',
@@ -79,6 +81,132 @@ export default {
     cardManusMeta: 'Researches and does the work · asks when unsure',
     cardKnowledge: 'Bring your files in and the chat can look them up. See how each one was split apart, and search a sentence yourself to check what comes back.',
     cardKnowledgeMeta: 'Upload files · try a search',
+  },
+
+  /* --------------------------------------------------------- how to use */
+
+  /*
+   * The usage guide. Reachable from the “About” column in the home page footer.
+   *
+   * It inherits both rules from the home copy (see the note at the top of the home block):
+   * written for **people using it**, no framework names or infrastructure words — the home
+   * checker only scans the home block, so this page holds the same line by hand.
+   *
+   * The stricter half matters more: **don’t claim more than the code does.** Every line below
+   * traces back to something real — the wording of the three system prompts (answer first,
+   * ask at most one question per turn, no diagnosis), the tool list ToolConfig actually
+   * registers, the knowledge page’s real limit (txt / md only), and the weight page’s
+   * “less than 7 days of entries, no comparison” rule.
+   *
+   * The entry-card names are not repeated here (they would drift from chat.*.title); the
+   * component looks those up by nameKey and only the “what it is / what it does” lives here.
+   */
+  guide: {
+    title: 'How to use Purify AI',
+    backHome: 'Back to home',
+
+    hero: {
+      eyebrow: 'Purify AI',
+      slogan: 'An AI assistant platform for losing weight sensibly',
+      lede: 'It wears two hats: Qingyu, an advisor you ask questions, and PurifyManus, an agent that goes and does the job. Your details, weigh-ins and goal are stored once and shared by both.',
+    },
+
+    parts: {
+      title: 'What’s in it',
+      intro: 'Three places to start. Chat with Qingyu, hand a job to PurifyManus, or build a knowledge base so the answers come out of your own material.',
+      open: 'Open',
+      slim: {
+        what: 'Advisor · question and answer',
+        desc: 'Ask about food, exercise, weight — anything. It looks through the knowledge base before answering, and says so plainly when it finds nothing instead of inventing a number.',
+      },
+      manus: {
+        what: 'Agent · finishes the job',
+        desc: 'It can check the weather, search, read web pages, read and write files and generate PDFs, and it works out the next step on its own. It does what it can and hands it over, then asks for the one thing it’s missing.',
+      },
+      knowledge: {
+        what: 'Your own material',
+        desc: 'Bring your files in and the chat can look them up. You can see how each one was split apart, and search a sentence yourself to check what comes back.',
+      },
+    },
+
+    /*
+     * “Getting the most out of it” — the heart of the page, ordered by what to do first.
+     *
+     * The keys (fillProfile / justAsk / …) are referenced in order from the TIPS table in the
+     * component, so **adding one means changing both places** — the same deal as
+     * REMEMBER_ITEM_KEYS. The knowledge entry is hidden from non-admins (they can’t open the
+     * knowledge page); that flag lives in the component, not here, because it’s about who
+     * sees it, not about the wording.
+     */
+    tips: {
+      title: 'Getting the most out of it',
+      intro: 'Ordered by what to do first — the top two matter most. Come back for the rest when you need them.',
+      fillProfile: {
+        title: 'Fill in “About me” once',
+        body: 'Height, weight, goal, anything to avoid — fill it in once and every conversation can use it. It pops up by itself the first time you open a chat; skipping is fine, and you can add to it later from “About me”.',
+      },
+      justAsk: {
+        title: 'Just ask — you don’t have to hand over your numbers first',
+        body: '“What’s a filling breakfast while cutting?” is answerable without knowing your height or weight. When it genuinely needs your numbers to be accurate, it says everything it can first and asks one question at the end — one per turn at most.',
+      },
+      sayIt: {
+        title: 'Say it in passing and it will remember',
+        body: '“I’m 175”, “I’m allergic to seafood” — it files that under “About me” so you don’t have to repeat it. When it does, a “Noted:” line shows up under the answer; hit “View” to see what it currently has.',
+      },
+      beSpecific: {
+        title: 'Tell PurifyManus what you actually want',
+        body: 'The more specific you are, the less it has to come back and ask. “Check tomorrow’s weather in Hangzhou” is weaker than “Check whether tomorrow is good for a run in Hangzhou — if it is, write the time and place to a file”.',
+      },
+      oneQuestion: {
+        title: 'When it does ask, it asks one thing at a time',
+        body: 'Just answer and it carries on with the full context. That’s why you don’t need to lay out all the background up front.',
+      },
+      library: {
+        title: 'Everything it makes lands in your Library',
+        body: 'Generated PDFs, downloaded files and written documents are all filed there — still there after you close the chat window or switch devices.',
+      },
+      aborted: {
+        title: 'If a task gets halted, break it into smaller pieces',
+        body: 'It stops itself when it’s going in circles — it would rather halt than hand you a padded answer. Split the request into two steps and ask again; that usually clears it.',
+      },
+      knowledge: {
+        title: 'Knowledge base: upload first, name the category when you ask',
+        body: 'txt and md only for now. Each file needs a category, and it only searches that category when the category name shows up in your question. Upload, then search a sentence to see what comes back.',
+      },
+      weight: {
+        title: 'Log one weigh-in and the trend appears',
+        body: 'Record it once on “Weight trend” and you get the curve, plus the change vs. 7 days and 30 days ago. Days you didn’t weigh in stay blank — it won’t draw you a line that isn’t there.',
+      },
+    },
+
+    /*
+     * “What it won’t do”. This section has to stay: it’s the product boundary and the user’s
+     * expectation-setting in one. All four come from the safety sections of the three system
+     * prompts — they are not promises the product made up for itself.
+     */
+    limits: {
+      title: 'What it won’t do',
+      intro: 'Hard limits, written into how it behaves.',
+      items: [
+        'It doesn’t diagnose anything, and it won’t recommend medication, meal replacements, diet teas or any prescription plan.',
+        'It won’t suggest crash dieting, fasting, purging or over-exercising.',
+        'It won’t promise “X pounds in Y days”, and it won’t judge how you look.',
+        'If you bring up an eating disorder, weight anxiety or low mood, it leads with concern and suggests talking to a doctor or a counsellor rather than carrying on with weight advice.',
+      ],
+      footnote: 'Everything here only helps tailor what it says to you. It doesn’t diagnose anything and isn’t a substitute for a doctor.',
+    },
+
+    /* “Three steps to start” — if you remember one thing from this page, it’s these */
+    start: {
+      title: 'Three steps to start',
+      steps: [
+        { title: 'Sign in', body: 'Sign in with your username and password, or register first.' },
+        { title: 'Fill in “About me” once', body: 'It pops up the first time you open a chat. A couple of fields is plenty — or skip it.' },
+        { title: 'Ask away', body: 'Health questions go to Qingyu; anything you want done goes to PurifyManus.' },
+      ],
+      cta: 'Start chatting',
+      ctaNote: 'You don’t have to fill anything in first — just ask.',
+    },
   },
 
   auth: {
@@ -227,6 +355,34 @@ export default {
       aborted: 'The task was halted by the loop guard. Try breaking the request into smaller pieces.',
     },
 
+    /*
+     * What the model wrote into the profile this turn. Field names come from the
+     * backend (ProfileField enum names); an unrecognised one just drops the item.
+     */
+    remember: {
+      title: 'Noted:',
+      view: 'View',
+      more: 'and {n} more',
+      item: {
+        age: 'Age {value}',
+        heightCm: 'Height {value}cm',
+        weightKg: 'Weight {value}kg',
+        goal: 'Goal {value}',
+        activityLevel: 'Activity {value}',
+        dietPreference: 'Diet {value}',
+        avoidFood: 'Avoiding {value}',
+      },
+      // Enum name → copy. Used **only** for this line: the settings dropdown gets its
+      // options from the backend untranslated (the backend matches on that label).
+      activity: {
+        SEDENTARY: 'Sedentary',
+        LIGHT: 'Lightly active',
+        MODERATE: 'Moderately active',
+        ACTIVE: 'Very active',
+        VERY_ACTIVE: 'Extremely active',
+      },
+    },
+
     composer: {
       stop: 'Stop',
       send: 'Send',
@@ -259,28 +415,181 @@ export default {
       title: 'Language',
       note: 'Interface text and error messages both switch over.',
     },
+    // All that's left of “About me” in this drawer is an **entry point** (one-line summary plus a
+    // link); the form and the read-only overview live on their own page, and their strings are in
+    // the profile group below. Same arrangement the weight trend got when it moved out.
     profile: {
-      title: 'About me',
-      needLogin: 'Sign in to fill this in — Qingyu uses it to tailor its advice.',
-      intro: 'Fill it in once and every conversation can use it. You can also just say it in chat — both write to the same record.',
+      empty: 'Nothing yet — fill it in once and every conversation can use it',
+      link: 'View and edit',
+      // The pieces of the drawer's one-line summary (“age 30 · 170cm · 71.5kg”). One key per
+      // fragment rather than a single assembled sentence: Chinese and English order the value
+      // and the unit differently (“30 岁” vs “age 30”), so each fragment needs its own wording.
+      summary: {
+        age: 'age {value}',
+        height: '{value}cm',
+        weight: '{value}kg',
+      },
+      // The weight trend moved to its own page (/weight) — that's where there's room for a
+      // chart you can read numbers off and a full list of entries. The drawer keeps a one-line
+      // summary plus a link; the chart's own strings live in the weight group below
+      weightTitle: 'Weight trend',
+      weightSummary: 'Latest {value}kg',
+      weightEmpty: 'No weigh-ins yet',
+      weightLink: 'View weight trend',
+    },
+  },
+
+  /* ------------------------------------------------------------ about me */
+
+  /*
+   * The “About me” (user profile) page. This whole block used to live in the settings drawer
+   * (under settings.profile.*); once it got its own page the copy moved here with it, leaving
+   * only the keys the drawer's entry point needs.
+   *
+   * Shape of the page: a read-only overview on top (“what does it currently think I am?”), the
+   * form underneath. The band wording (band.*) is deliberately neutral — “below / above the
+   * usual range” rather than “underweight / overweight” — for the same reason the weight page
+   * doesn't colour gains and losses: this page doesn't pass judgement.
+   */
+  profile: {
+    title: 'About me',
+    backHome: 'Back to home',
+    updated: 'Updated {when}',
+    needLogin: 'Sign in to fill this in — Qingyu uses it to tailor its advice.',
+    age: 'Age',
+    agePlaceholder: 'e.g. 30',
+    height: 'Height (cm)',
+    heightPlaceholder: 'e.g. 170',
+    weight: 'Weight (kg)',
+    weightPlaceholder: 'e.g. 71.5',
+    bmi: 'BMI',
+    goal: 'Goal',
+    goalPlaceholder: 'e.g. get down to 65kg in three months',
+    activity: 'Daily activity level',
+    activityEmpty: 'Not set',
+    diet: 'Diet preferences',
+    dietPlaceholder: 'e.g. loves pasta / vegetarian',
+    avoid: 'Avoid / allergies',
+    avoidPlaceholder: 'e.g. seafood allergy / lactose intolerant',
+    clearNote: 'Clear a field and save to delete it.',
+    loadFailed: 'Couldn’t load your profile, please try again later.',
+    saveFailed: 'Couldn’t save, please try again later.',
+    footnote: 'This only helps Qingyu tailor what it says to you. It doesn’t diagnose anything and isn’t a substitute for a doctor.',
+    overview: {
+      title: 'What it knows',
+      empty: 'Nothing yet. Fill it in below, or just say it in chat.',
       age: 'Age',
-      agePlaceholder: 'e.g. 30',
-      height: 'Height (cm)',
-      heightPlaceholder: 'e.g. 170',
-      weight: 'Weight (kg)',
-      weightPlaceholder: 'e.g. 71.5',
+      ageEmpty: 'Not set',
+      height: 'Height',
+      heightEmpty: 'Not set',
+      weight: 'Weight',
+      weightEmpty: 'Not set',
       bmi: 'BMI',
-      goal: 'Goal',
-      goalPlaceholder: 'e.g. get down to 65kg in three months',
       activity: 'Daily activity level',
       activityEmpty: 'Not set',
-      diet: 'Diet preferences',
-      dietPlaceholder: 'e.g. loves pasta / vegetarian',
-      avoid: 'Avoid / allergies',
-      avoidPlaceholder: 'e.g. seafood allergy / lactose intolerant',
-      clearNote: 'Clear a field and save to delete it.',
-      loadFailed: 'Couldn’t load your profile, please try again later.',
-      saveFailed: 'Couldn’t save, please try again later.',
+    },
+    // BMI bands: the number comes from the backend, the band is decided here
+    band: {
+      under: 'Below the usual range',
+      normal: 'Usual range',
+      over: 'Above the usual range',
+      obese: 'Well above the usual range',
+    },
+    form: {
+      title: 'Edit it',
+      intro: 'Fill it in once and every conversation can use it. You can also just say it in chat — both write to the same record.',
+    },
+    weight: {
+      title: 'Weight trend',
+      summary: 'Currently recorded as {value}kg',
+      empty: 'No weigh-ins yet',
+      link: 'See trend and entries',
+    },
+    /*
+     * The one automatic prompt shown when entering a chat page (only while the profile is
+     * still empty — see ProfilePrompt).
+     *
+     * The field labels are not repeated here: they are the **same keys** the About-me page
+     * uses (profile.age / profile.height / …), so there is one less place to drift.
+     *
+     * The wording has to make "you can ignore this" obvious: nobody asked for this dialog,
+     * so it must be visibly skippable — and the note explains that filling in anything stops
+     * it, otherwise "Skip" reads like closing something that will just come back.
+     */
+    prompt: {
+      title: 'Tell me a bit about you',
+      intro: 'Fill in what you like and Qingyu can tailor its advice. Rather not? Just skip — or say it in chat; both write to the same record.',
+      skip: 'Skip for now',
+      note: 'Once you fill in anything, this stops popping up on its own.',
+    },
+  },
+
+  /* -------------------------------------------------------- weight trend */
+
+  /*
+   * The weight-trend page. These strings used to live in the settings drawer
+   * (settings.profile.chart.*); once the trend got its own page they moved here with it,
+   * and the chart component now reads from this group too.
+   *
+   * Two conventions worth keeping:
+   *   "vs. 7 days ago" compares against **the nearest entry outside that window**, not "the
+   *   entry from exactly 7 days ago" — nobody weighs in daily, so an exact-day match is always
+   *   empty. With less than 7 days of data the page says so instead of forcing a comparison
+   *   the user never actually recorded.
+   *   Gains and losses are **not colour-coded** — the reasoning is in WeightChart's styles
+   *   (we don't want to reinforce "lighter is better").
+   */
+  weight: {
+    title: 'Weight trend',
+    backHome: 'Back to home',
+    loadFailed: 'Couldn’t load your weigh-ins, please try again later.',
+    record: {
+      label: 'What do you weigh {date}?',
+      placeholder: 'e.g. 71.5',
+      hint: 'Logged as right now. The same number twice in one day is kept once; a later day is always kept — an unchanged weight is information too.',
+      submit: 'Log it',
+      saving: 'Logging…',
+      done: 'Logged {value}kg',
+      needValue: 'Enter a weight first',
+      failed: 'Couldn’t log it, please try again later.',
+    },
+    stats: {
+      current: 'Current weight',
+      week: 'vs. 7 days ago',
+      month: 'vs. 30 days ago',
+      total: 'Total change',
+      count: 'Weigh-ins',
+      times: '{n}',
+      bmi: 'BMI',
+      // Why a cell has no number. {days} is 7 / 30; {date} is the baseline for the total
+      notEnough: 'Less than {days} days of entries',
+      needTwo: 'Needs at least two entries',
+      since: 'since {date}',
+      flat: 'no change',
+      up: 'up {value}kg',
+      down: 'down {value}kg',
+    },
+    chart: {
+      title: 'Weight over time',
+      empty: 'No weigh-ins yet. Enter today’s weight above and the first dot shows up here.',
+      latest: 'Latest {value}kg',
+      down: 'Down {value}kg from the earliest',
+      up: 'Up {value}kg from the earliest',
+      flat: 'Unchanged from the earliest',
+      sameDay: '(several entries the same day)',
+      note: 'The horizontal axis follows real dates, so days you didn’t weigh in stay blank. The vertical axis doesn’t start at zero — both ends are labelled with the actual weight.',
+    },
+    list: {
+      title: 'All entries ({n})',
+      empty: 'No entries yet.',
+      when: 'When',
+      value: 'Weight (kg)',
+      change: 'vs. previous',
+      first: 'earliest',
+      same: 'no change',
+      delete: 'Delete',
+      deleteConfirm: 'Delete the {value}kg entry from {when}?',
+      deleteFailed: 'Delete failed, please try again later.',
     },
   },
 

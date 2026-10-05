@@ -200,8 +200,14 @@ function trackPointer(e) {
             <RouterLink to="/knowledge">{{ $t('home.footSearch') }}</RouterLink>
           </div>
 
+          <!-- 「关于」这一栏的标题本身就是入口，点它进使用说明。
+               不再单列一条「使用说明 →」：这一栏只有这一件事可点，
+               标题和链接指向同一个地方等于把同一个目标写两遍。
+               它长得和另外两栏的 h3 完全一样（见 .col h3 a），只多了个悬停变色 -->
           <div class="col">
-            <h3>{{ $t('home.footAbout') }}</h3>
+            <h3>
+              <RouterLink to="/guide">{{ $t('home.footAbout') }}</RouterLink>
+            </h3>
             <p>{{ $t('home.footAboutText') }}</p>
           </div>
         </div>
@@ -601,6 +607,29 @@ function trackPointer(e) {
   font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+/*
+ * 「关于」那一栏的标题本身是个链接（点它进使用说明）。
+ *
+ * 它必须长得和另外两栏的 h3 一模一样，所以这里要把下面 `.col a` 那套「页脚链接」
+ * 的样式**压回去**：`.col a` 和 `.col h3` 的特异性相同（都是 0,1,1），
+ * 而链接是 h3 的子元素、`.col a` 直接命中它，所以不写这一段的话，
+ * 这个标题会变成 13px 的灰色链接字，比旁边两个标题大一号。
+ * 选择器写到 `.col h3 a`（0,1,2）才压得住。
+ *
+ * 悬停变色是它「能点」的唯一提示（另外两栏靠标题下面的链接列来提示），
+ * 这一点蓝也就够用了。
+ */
+.col h3 a {
+  display: inline;
+  margin-bottom: 0;
+  color: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}
+.col h3 a:hover {
+  color: var(--blue);
 }
 
 .col a {

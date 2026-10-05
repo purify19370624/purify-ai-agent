@@ -32,12 +32,28 @@ import java.util.Optional;
 public class UserProfileRepository {
 
     /**
-     * 画像里最多带几条体重流水。
+     * 喂给<b>模型</b>的体重流水条数上限。
      *
      * <p>10 条够看出趋势了。带全部流水没意义：模型要的是「在降还是在涨」，
      * 不是每一笔明细，而明细每多一条就多占一份 token。
+     *
+     * <p><b>这个数只管模型那一侧，不要拿它去限制页面。</b>它本来是被
+     * {@code findWeightHistory} 用在所有调用方身上的，而体重变化页要画的是
+     * 「这几个月的趋势」——一条最多 10 个点的曲线，等于看不到趋势。
+     * 两个消费者的约束是相反的（一边省 token，一边要尽量多的点），
+     * 所以现在是两个方法：{@link #findRecentWeightHistory} 给模型，
+     * {@link #findWeightHistory} 给页面。
      */
-    private static final int HISTORY_LIMIT = 10;
+    private static final int MODEL_HISTORY_LIMIT = 10;
+
+    /**
+     * 给<b>页面</b>的体重流水条数上限。
+     *
+     * <p>不是「分页」而是「兜底」：一个人一年天天称也就 365 条，
+     * 而这个上限只用来挡住「表里被灌了几十万行、一次全查出来」这种极端情况。
+     * 真要有人攒到 500 条以上，那时候该做的是按时间窗查，而不是把上限调大。
+     */
+    private static final int PAGE_HISTORY_LIMIT = 500;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -107,17 +123,71 @@ public class UserProfileRepository {
         log.debug("[UserProfile] 已写入画像：userId={} 影响 {} 行", userId, updated);
     }
 
-    /** 读体重流水，新的在前。 */
+    /**
+     * 最近 10 条体重流水（新的在前）——<b>给模型看的窗口</b>，条数见
+     * {@link #MODEL_HISTORY_LIMIT}。
+     *
+     * <p>不给 limit 参数是有意的：那个数只该由这个类决定（一边省 token、
+     * 一边要尽量多的点），让调用方传的话，早晚会出现
+     * 「模型那条路径传了 50，报告却说 10」这种没人看得出来的不一致。
+     */
+    public List<UserProfile.WeightRecord> findRecentWeightHistory(String userId) {
+        return queryWeightHistory(userId, MODEL_HISTORY_LIMIT);
+    }
+
+    /**
+     * 最新的一条流水。没有就是空。
+     *
+     * <p>给两处判断用：「这次记的体重和上一条是不是同一天/同一个值」，
+     * 以及「删掉的这条是不是最新那条」。都只需要一条，不该把整份流水拉出来。
+     */
+    public Optional<UserProfile.WeightRecord> findLatestWeightRecord(String userId) {
+        return queryWeightHistory(userId, 1).stream().findFirst();
+    }
+
+    /**
+     * 全部体重流水（新的在前）——<b>给页面看的</b>。
+     *
+     * <p>上限见 {@link #PAGE_HISTORY_LIMIT}，它只是兜底，不是分页。
+     */
     public List<UserProfile.WeightRecord> findWeightHistory(String userId) {
+        return queryWeightHistory(userId, PAGE_HISTORY_LIMIT);
+    }
+
+    /**
+     * 按主键删掉一条体重流水。
+     *
+     * <p>表本身仍然是「只追加」的（见 {@link #appendWeight}）：这里删的是**记错的那一条**，
+     * 不是「改历史」。没有这个口子的话，手滑打进一个 720，那条线会永远钉在图上，
+     * 还会把整张图的纵轴拉爆——而用户没有任何办法把它去掉。
+     *
+     * <p>{@code user_id} 一起进 WHERE，不是多余的：{@code id} 是全局自增的，
+     * 只按 id 删就给了「删别人的记录」一个入口。带上它之后，删不到就是删不到。
+     *
+     * @return 真的删掉了几行（0 表示这条不属于这个用户，或者已经没了）
+     */
+    public int deleteWeightRecord(String userId, Long id) {
+        int deleted = jdbcTemplate.update(
+                "DELETE FROM user_profile_weight_history WHERE user_id = ? AND id = ?", userId, id);
+        log.info("[UserProfile] userId={} 删除体重流水 id={}，影响 {} 行", userId, id, deleted);
+        return deleted;
+    }
+
+    /**
+     * 读流水。字段顺序要和 {@link UserProfile.WeightRecord} 的构造器对齐，
+     * 两个公开方法都走这里，免得两处 SELECT 慢慢不一致。
+     */
+    private List<UserProfile.WeightRecord> queryWeightHistory(String userId, int limit) {
         return jdbcTemplate.query("""
-                SELECT weight_kg, recorded_at
+                SELECT id, weight_kg, recorded_at
                   FROM user_profile_weight_history
                  WHERE user_id = ?
                  ORDER BY recorded_at DESC, id DESC
                  LIMIT ?
                 """, (resultSet, rowNum) -> new UserProfile.WeightRecord(
+                resultSet.getLong("id"),
                 resultSet.getDouble("weight_kg"),
-                resultSet.getObject("recorded_at", LocalDateTime.class)), userId, HISTORY_LIMIT);
+                resultSet.getObject("recorded_at", LocalDateTime.class)), userId, limit);
     }
 
     /**

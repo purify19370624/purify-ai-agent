@@ -1,15 +1,21 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as auth from '../auth.js'
 import { uploadAvatar } from '../api/auth.js'
-import { fetchProfile, updateProfile } from '../api/http.js'
+import { fetchProfile } from '../api/http.js'
 import { isChatDark, setTheme, theme } from '../theme.js'
 import { closeSettings } from '../panels.js'
 import { LOCALE_OPTIONS, localeRef, setLocale } from '../i18n/index.js'
-import { message, rawMessage, resolveMessage } from '../i18n/index.js'
+import { message, rawMessage, resolveMessage, t } from '../i18n/index.js'
 
 /**
- * 设置抽屉：头像、外观、语言、用户画像。
+ * 设置抽屉：头像、外观、语言，以及「我的情况」和「体重变化」两个入口。
+ *
+ * **画像表单已经不在这里了**（搬去 `/profile` 单独一页）。理由和体重变化当初
+ * 搬出去一样：画像是一份会被反复查看的资料，不是一组设置。而且模型在对话里
+ * 一直在往里写，气泡下面那行「已记住」的查看入口原先点开的是抽屉里的表单——
+ * 用户要的是「它记住了什么」，落到的却是一个要滚过整张表单才看得全的输入框。
+ * 抽屉现在只留一行摘要加一个入口，和体重那块一个形状。
  *
  * 和 `UserMenu` 一样，这个组件在对话页（可能深色）和首页（永远浅色）都会出现，
  * 所以配色一律跟着 `isChatDark` 走，不读 `theme`——用户在首页把偏好设成深色时，
@@ -67,98 +73,80 @@ async function onAvatarPicked(event) {
 
 /* ------------------------------------------------------------------ 画像 */
 
-const form = reactive({
-  age: '',
-  heightCm: '',
-  weightKg: '',
-  goal: '',
-  activityLevel: '',
-  dietPreference: '',
-  avoidFood: '',
-})
-
-/** 可选项由后端给（跟着活动水平枚举走），前端不写死一份 */
-const activityOptions = ref([])
-const bmi = ref(null)
+/**
+ * 这一块只显示两份摘要，不显示表单：真正的编辑在 `/profile` 那一页。
+ *
+ * 两个 `/api/profile` 的请求（读和写）都跟着表单搬走了，抽屉现在只读一次。
+ * 它是 `v-if` 挂载的，每次打开都会重新走一遍 onMounted，所以摘要不会过期。
+ */
+const profile = ref(null)
+/** 体重流水（新的在前，后端保证），摘要里那个「最近 71.5kg」用它 */
+const weightHistory = ref([])
 const loading = ref(true)
-const saving = ref(false)
 const loadError = ref(null)
-const saveError = ref(null)
-const saved = ref(false)
+/** 「未登录」和「加载失败」是两种状态，得分开：前者不该报错，后者不该显示成空的 */
+const loggedIn = computed(() => auth.isLoggedIn())
 
 const loadErrorText = computed(() => resolveMessage(loadError.value))
-const saveErrorText = computed(() => resolveMessage(saveError.value))
-
-function fillFrom(profile) {
-  form.age = profile.age ?? ''
-  form.heightCm = profile.heightCm ?? ''
-  form.weightKg = profile.weightKg ?? ''
-  form.goal = profile.goal ?? ''
-  form.activityLevel = profile.activityLevel ?? ''
-  form.dietPreference = profile.dietPreference ?? ''
-  form.avoidFood = profile.avoidFood ?? ''
-  activityOptions.value = profile.activityLevelOptions ?? []
-  bmi.value = profile.bmi ?? null
-}
 
 /**
- * 空串转成 null。
+ * 基本情况的摘要：「30 岁 · 170cm · 71.5kg」。
  *
- * 数字输入框空着时 `v-model` 给的是空串，直接发给后端会被 Jackson 判成
- * 解析失败（400，而且错误信息是用户看不懂的英文）。转成 null 才是
- * 「这一项没填」的意思。
+ * 年龄、身高、体重三项——它们是最常被问到、也最常变的三项，一行放得下。
+ * 目标、饮食偏好、忌口不在这里列：它们通常是一整句话（「三个月减到 65 公斤」），
+ * 拼进来这一行就折成两三行了，而抽屉里这个块的本意是「一眼看过、点进去看全部」。
+ *
+ * 取整和删掉多余的 .0 走 `String(Number(...))`：后端那两列是 DECIMAL，
+ * 68 读出来是 68.0，直接拼进去会变成「170.0cm」。
  */
-function toNumber(value) {
-  if (value === '' || value === null || value === undefined) return null
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : null
+const profileSummary = computed(() => {
+  const data = profile.value ?? {}
+  const parts = []
+  // 键的前缀是 settings.profile.*，**和全局的 profile.* 不是一组**：这一行是抽屉
+  // 自己的东西（页面那边有它的完整版本）。写错前缀的表现不是报错，而是界面上
+  // 直接显示出 `profile.summary.age` 这种键名——见 check-i18n 里那条「代码里用了
+  // 但语言包里没有」的检查，那是为了不再靠肉眼发现这类错
+  if (Number.isFinite(data.age)) parts.push(t('settings.profile.summary.age', { value: data.age }))
+  if (Number.isFinite(data.heightCm)) {
+    parts.push(t('settings.profile.summary.height', { value: String(Number(data.heightCm)) }))
+  }
+  if (Number.isFinite(data.weightKg)) {
+    parts.push(t('settings.profile.summary.weight', { value: String(Number(data.weightKg)) }))
+  }
+  return parts.join(' · ')
+})
+
+/**
+ * 摘要里那个「最近 71.5kg」。
+ *
+ * 取第一条而不是自己按时间排一遍：顺序是后端 `ORDER BY recorded_at DESC` 定的，
+ * 前端再排一次只是多一个可能和后端不一致的地方。
+ */
+const latestWeight = computed(() => {
+  const newest = weightHistory.value.find((point) => Number.isFinite(point?.weightKg))
+  return newest ? String(Number(newest.weightKg.toFixed(1))) : ''
+})
+
+async function loadProfile() {
+  try {
+    const data = await fetchProfile()
+    profile.value = data
+    // 同一个 GET /api/profile 已经在返回流水了，不额外发请求
+    weightHistory.value = data?.weightHistory ?? []
+  } catch (err) {
+    loadError.value = err?.message ? rawMessage(err.message) : message('profile.loadFailed')
+  } finally {
+    loading.value = false
+  }
 }
 
-onMounted(async () => {
-  if (!auth.isLoggedIn()) {
+onMounted(() => {
+  if (!loggedIn.value) {
     loading.value = false
     return
   }
-  try {
-    fillFrom(await fetchProfile())
-  } catch (err) {
-    loadError.value = err?.message ? rawMessage(err.message) : message('settings.profile.loadFailed')
-  } finally {
-    loading.value = false
-  }
+  loadProfile()
 })
-
-/**
- * 保存。
- *
- * **七个字段一起发**，不是只发改动过的：后端的语义是整体替换，
- * 只发改动过的那些会把其余字段当成「清空」。这也正是用户能删掉
- * 某个字段的原因——表单上是什么，库里就是什么。
- */
-async function save() {
-  saving.value = true
-  saveError.value = null
-  saved.value = false
-  try {
-    const updated = await updateProfile({
-      age: toNumber(form.age),
-      heightCm: toNumber(form.heightCm),
-      weightKg: toNumber(form.weightKg),
-      goal: form.goal,
-      activityLevel: form.activityLevel,
-      dietPreference: form.dietPreference,
-      avoidFood: form.avoidFood,
-    })
-    // 用后端返回的那份回填，而不是拿本地表单：后端可能会把空白折成 null，
-    // 也可能会因为体重变化追加一条流水。以后端为准，界面才不会和库里不一致
-    fillFrom(updated)
-    saved.value = true
-  } catch (err) {
-    saveError.value = err?.message ? rawMessage(err.message) : message('settings.profile.saveFailed')
-  } finally {
-    saving.value = false
-  }
-}
 
 /* ------------------------------------------------------------------ 开合 */
 
@@ -263,77 +251,46 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
           <p class="note">{{ $t('settings.language.note') }}</p>
         </section>
 
-        <!-- ========================== 用户画像 ========================== -->
+        <!-- ========================== 我的情况 ==========================
+             这里只留摘要和入口，表单在 /profile 那一页。理由和下面体重那块同源：
+             画像是一份会被反复查看的资料，一行摘要够用；编辑该落在一页放得下
+             概览 + 表单的页面上 -->
         <section class="block">
-          <h3>{{ $t('settings.profile.title') }}</h3>
+          <h3>{{ $t('profile.title') }}</h3>
 
-          <p v-if="!auth.isLoggedIn()" class="note">{{ $t('settings.profile.needLogin') }}</p>
+          <p v-if="!loggedIn" class="note">{{ $t('profile.needLogin') }}</p>
           <p v-else-if="loading" class="note">{{ $t('common.loading') }}</p>
           <p v-else-if="loadErrorText" class="error">{{ loadErrorText }}</p>
 
           <template v-else>
-            <p class="note">
-              {{ $t('settings.profile.intro') }}
-            </p>
-
-            <div class="grid">
-              <label class="field">
-                <span class="label">{{ $t('settings.profile.age') }}</span>
-                <input v-model="form.age" type="number" min="1" max="150" :placeholder="$t('settings.profile.agePlaceholder')" />
-              </label>
-              <label class="field">
-                <span class="label">{{ $t('settings.profile.height') }}</span>
-                <input v-model="form.heightCm" type="number" min="50" max="250" step="0.5" :placeholder="$t('settings.profile.heightPlaceholder')" />
-              </label>
-              <label class="field">
-                <span class="label">{{ $t('settings.profile.weight') }}</span>
-                <input v-model="form.weightKg" type="number" min="1" max="500" step="0.1" :placeholder="$t('settings.profile.weightPlaceholder')" />
-              </label>
-              <label class="field">
-                <span class="label">{{ $t('settings.profile.bmi') }}</span>
-                <!-- 只读，由后端算。它会在明显不合理的数据上返回空，
-                     那时显示「—」比显示一个错数好 -->
-                <input :value="bmi ?? '—'" type="text" readonly tabindex="-1" />
-              </label>
+            <div class="entry">
+              <p class="entry-line">
+                <span v-if="profileSummary" class="entry-value">{{ profileSummary }}</span>
+                <!-- 一项都没填过时给的是「去填一次」，而不是列出几个空值 -->
+                <span v-else class="entry-empty">{{ $t('settings.profile.empty') }}</span>
+              </p>
+              <RouterLink class="entry-link" to="/profile" @click="closeSettings">
+                {{ $t('settings.profile.link') }} →
+              </RouterLink>
             </div>
 
-            <label class="field full">
-              <span class="label">{{ $t('settings.profile.goal') }}</span>
-              <input v-model="form.goal" type="text" :placeholder="$t('settings.profile.goalPlaceholder')" />
-            </label>
-
-            <label class="field full">
-              <span class="label">{{ $t('settings.profile.activity') }}</span>
-              <!-- 选项由后端返回（跟着枚举走），不在这儿写死一份。
-                   **label / hint 也不翻译**：后端拿 label 当匹配依据（ActivityLevel.parse），
-                   翻了用户画像就回写不进库了。见后端的 messages.properties 说明 -->
-              <select v-model="form.activityLevel">
-                <option value="">{{ $t('settings.profile.activityEmpty') }}</option>
-                <option v-for="option in activityOptions" :key="option.value" :value="option.value">
-                  {{ option.label }} · {{ option.hint }}
-                </option>
-              </select>
-            </label>
-
-            <label class="field full">
-              <span class="label">{{ $t('settings.profile.diet') }}</span>
-              <input v-model="form.dietPreference" type="text" :placeholder="$t('settings.profile.dietPlaceholder')" />
-            </label>
-
-            <label class="field full">
-              <span class="label">{{ $t('settings.profile.avoid') }}</span>
-              <input v-model="form.avoidFood" type="text" :placeholder="$t('settings.profile.avoidPlaceholder')" />
-            </label>
-
-            <p class="note">{{ $t('settings.profile.clearNote') }}</p>
-
-            <div class="actions">
-              <button class="btn primary" type="button" :disabled="saving" @click="save">
-                {{ saving ? $t('common.saving') : $t('common.save') }}
-              </button>
-              <span v-if="saved" class="ok">{{ $t('common.saved') }}</span>
+            <!-- 体重变化**不在这里画图了**，只留一句摘要和一个入口。
+                 搬走的原因：抽屉里放不下它真正需要的东西——一张能读出刻度的图、
+                 几个时间窗口的变化、以及一份可以核对和删除的记录列表；
+                 而这一段要滚过整张表单才看得到，进去还要两步。
+                 数据还是同一次 fetchProfile，不额外发请求 -->
+            <div class="entry">
+              <p class="entry-line">
+                <span class="entry-title">{{ $t('settings.profile.weightTitle') }}</span>
+                <span v-if="latestWeight" class="entry-value">
+                  {{ $t('settings.profile.weightSummary', { value: latestWeight }) }}
+                </span>
+                <span v-else class="entry-empty">{{ $t('settings.profile.weightEmpty') }}</span>
+              </p>
+              <RouterLink class="entry-link" to="/weight" @click="closeSettings">
+                {{ $t('settings.profile.weightLink') }} →
+              </RouterLink>
             </div>
-            <p v-if="saveErrorText" class="error">{{ saveErrorText }}</p>
           </template>
         </section>
       </div>
@@ -530,70 +487,69 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   font-weight: 500;
 }
 
-/* ---------------------------------------------------------------- 表单 */
+/* ------------------------------------------------------------ 两个入口 */
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+/*
+ * 「我的情况」和「体重变化」都搬去了各自的页面（/profile 和 /weight），
+ * 抽屉里只剩摘要 + 入口。两块用同一个形状：左边一行摘要，右边一个链接块。
+ * 两块之间用虚线分开——读起来像「以下是另一件事」，和 .block 之间那条实线区分开。
+ */
+.entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--d-line);
 }
-
-.field {
-  display: block;
-  margin-top: 12px;
-}
-.grid .field {
+/* 第一块紧跟在标题下面，不需要自己那条分隔线 */
+.entry:first-of-type {
   margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
-.label {
-  display: block;
-  margin-bottom: 5px;
+.entry-line {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  min-width: 0;
+}
+
+.entry-title {
   color: var(--d-muted);
   font-size: 12.5px;
 }
 
-.field input,
-.field select {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--d-input-line);
-  border-radius: 9px;
-  background: var(--d-input-bg);
+.entry-value {
   color: var(--d-text);
-  font: inherit;
-  font-size: 13.5px;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.field input:focus,
-.field select:focus {
-  outline: none;
-  border-color: var(--brand);
-  box-shadow: 0 0 0 3px var(--brand-soft);
-}
-
-.field input[readonly] {
+.entry-empty {
   color: var(--d-muted);
-  cursor: default;
+  font-size: 13px;
 }
 
-/* 关掉数字输入框的上下箭头：它们很窄，容易误点，而这两项都是偶尔填一次 */
-.field input[type='number']::-webkit-outer-spin-button,
-.field input[type='number']::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
+/* 入口做成一个明确的链接块：它现在是把人送去那一页的唯一线索 */
+.entry-link {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--d-line);
+  border-radius: 8px;
+  color: var(--d-text);
+  font-size: 12.5px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, color 0.18s ease;
 }
-.field input[type='number'] {
-  -moz-appearance: textfield;
-  appearance: textfield;
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 18px;
+.entry-link:hover {
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .btn {
@@ -634,21 +590,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
   margin-top: 6px;
 }
 
-.ok {
-  color: var(--brand);
-  font-size: 13px;
-}
-
 .error {
   margin-top: 10px;
   color: var(--d-danger);
   font-size: 12.5px;
   line-height: 1.6;
-}
-
-@media (max-width: 480px) {
-  .grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

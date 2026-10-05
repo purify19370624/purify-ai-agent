@@ -4,6 +4,7 @@ import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.purify.purifyaiagent.advisor.LoggingAdvisor;
 import com.purify.purifyaiagent.advisor.ReReadingAdvisor;
 import com.purify.purifyaiagent.advisor.SensitiveWordAdvisor;
+import com.purify.purifyaiagent.agent.tool.ProfileChangeCollector;
 import com.purify.purifyaiagent.agent.tool.ToolContexts;
 import com.purify.purifyaiagent.chat.ChatRecordRepository;
 import com.purify.purifyaiagent.chat.ChatScene;
@@ -246,8 +247,23 @@ public class SlimApp {
         return reply;
     }
 
-    /** 多轮对话（流式），返回逐段生成的文本。参数顺序同 {@link #chat}。 */
-    public Flux<String> chatStream(String message, String chatId, String userId, Messages i18n) {
+    /**
+     * 多轮对话（流式），返回逐段生成的文本。参数顺序同 {@link #chat}。
+     *
+     * <p><b>这条链路看不到工具调用。</b>工具确实会被执行，但执行过程被
+     * {@code DashScopeChatModel} 的内部循环消化掉了——它检测到有 tool_calls 就把那一帧
+     * 换成递归调用的结果，只有最终文本分片会流下来。所以这里返回的是
+     * {@code Flux<String>} 而不是 {@code Flux<AgentEvent>}：没有「中间过程」可发。
+     * 想知道模型这轮往画像里写了什么，只能靠 {@code profileChanges} 这条侧信道。
+     *
+     * @param profileChanges 这一轮画像改动的收集器，由接口层建好传进来——它要在流结束
+     *                       <b>之后</b>才能读到内容，所以不能是这里 new 出来的局部变量。
+     *                       为 null 表示这一轮不收集（阻塞式入口、看图）。
+     *                       它被塞进 {@code toolContext}，因为工具跑在 Reactor 线程上，
+     *                       请求线程上的任何 ThreadLocal 在那里都读不到
+     */
+    public Flux<String> chatStream(String message, String chatId, String userId, Messages i18n,
+                                   ProfileChangeCollector profileChanges) {
         // 流式拿不到一个「最终的字符串」，只能自己把分片攒起来；
         // 攒的动作和 LoggingAdvisor 汇总日志是同一个套路
         StringBuilder reply = new StringBuilder();
@@ -255,7 +271,7 @@ public class SlimApp {
                 .system(renderSystemPrompt(i18n))
                 .user(message)
                 .advisors(spec -> spec.param(ChatMemory.CONVERSATION_ID, chatId))
-                .toolContext(ToolContexts.of(userId, chatId))
+                .toolContext(ToolContexts.of(userId, chatId, profileChanges))
                 .stream()
                 .content()
                 .doOnNext(reply::append)
@@ -345,8 +361,9 @@ public class SlimApp {
     }
 
     /*
-     * 工具上下文不在这里拼，统一走 `ToolContexts.of(userId, chatId)`——
+     * 工具上下文不在这里拼，统一走 `ToolContexts.of(...)`——
      * 上面三个入口（chat / chatStream / explainImage）都调它，一个都不能漏。
+     * 只有 chatStream 走三参数版本（多一个画像改动收集器），另外两个走两参数的。
      *
      * 原先这里是一个私有的 `toolContext(userId)`，user id 为空时返回空 map。
      * 那是个雷：Spring AI 在「方法声明了 ToolContext 参数、而传进来的 map 是空的」

@@ -185,12 +185,42 @@ export async function fetchProfile() {
 }
 
 /**
- * 改画像。**只传这次改动的字段**，没传的后端保持原值。
+ * 改画像。**整体替换**：表单上是什么，库里就是什么。
+ *
+ * 所以调用方必须把七个字段都发上来（没填的传 null）。只发改动过的那些，
+ * 没传的会被后端当成「用户要清空」——这也正是用户能删掉某个字段的原因。
+ * （这段注释原先写的是「只传这次改动的字段，没传的后端保持原值」，
+ * 那说的是后端 {@code ProfileService#update} 的合并语义，也就是**对话那条路径**；
+ * 这个接口走的是 {@code replace}，两者相反。）
  *
  * 返回改完之后完整的画像，直接拿它刷新表单即可，不用再 fetchProfile 一次。
  */
 export async function updateProfile(payload) {
   const { data } = await http.put('/api/profile', payload)
+  return data
+}
+
+/**
+ * 记一次体重。
+ *
+ * 只动体重这一项，身高、目标、忌口那些原样保留——所以这里不需要先把整份画像读出来
+ * 再发回去，也就不会因为一次记录把别的字段覆盖掉。
+ *
+ * 返回整份画像（含刷新后的体重流水），页面拿它一次全刷新。
+ */
+export async function recordWeight(weightKg) {
+  const { data } = await http.post('/api/profile/weight', { weightKg })
+  return data
+}
+
+/**
+ * 删掉记错的那一条体重流水。
+ *
+ * `id` 来自画像里的 `weightHistory[].id`。**删不到也返回 200**：
+ * 「这条不在了」和「这条不是你的」对界面是同一件事——刷新一下，该在的还在。
+ */
+export async function deleteWeightRecord(id) {
+  const { data } = await http.delete(`/api/profile/weight/${id}`)
   return data
 }
 

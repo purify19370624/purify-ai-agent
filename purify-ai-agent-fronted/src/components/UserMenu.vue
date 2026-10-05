@@ -15,6 +15,9 @@ import { openSettings, openResources } from '../panels.js'
  * **「知识库」那一项只对超级用户显示**，这只是界面显隐。真正的拦截是后端的
  * `@RequireAdmin`：手工改 localStorage 能让这一项冒出来，但点进去每个接口都 403。
  * 把它当成权限控制是错的，写在注释里免得以后有人依赖它。
+ *
+ * 「我的情况」和「体重变化」是两条**路由**（各有一页），设置和资料库是两个抽屉。
+ * 前两个用 RouterLink、后两个用 button 打开，区别就在这儿。
  */
 
 defineProps({
@@ -133,6 +136,18 @@ onBeforeUnmount(() => {
 
         <RouterLink v-if="isAdmin" class="item" to="/knowledge" role="menuitem" @click="close">
           {{ $t('menu.knowledge') }}
+        </RouterLink>
+
+        <!-- 「我的情况」和「体重变化」都是「按人」的功能，所以放在用户菜单里
+             而不是顶栏的链接区（那一区放的是知识库这种按角色显隐的入口）。
+             未登录时整块菜单都不渲染——这两页要登录才看得到，
+             守卫会把它们拦到登录页 -->
+        <RouterLink class="item" to="/profile" role="menuitem" @click="close">
+          {{ $t('menu.profile') }}
+        </RouterLink>
+
+        <RouterLink class="item" to="/weight" role="menuitem" @click="close">
+          {{ $t('menu.weight') }}
         </RouterLink>
 
         <!-- 这两个打开的是盖在页面上的抽屉，不是路由，所以用 button 而不是 RouterLink -->

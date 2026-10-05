@@ -8,6 +8,10 @@ import { SLIM, MANUS } from '../chatConfig.js'
 import { theme, enterChatPage, leaveChatPage } from '../theme.js'
 import { isEnglish, message, rawMessage, resolveMessage, t } from '../i18n/index.js'
 import UserMenu from './UserMenu.vue'
+// 「画像还空着就先问一次」的弹窗。**它自己决定渲染不渲染**（内部先读一次
+// `GET /api/profile`，填过任意一项就什么都不渲染），所以这里只是挂上，
+// 不需要父组件认识画像的字段。理由和取舍写在那个组件的文件头
+import ProfilePrompt from './ProfilePrompt.vue'
 
 /**
  * 轻语和 PurifyManus 共用的聊天室。
@@ -439,6 +443,12 @@ function newReply() {
     /** 失败原因，存的是描述符不是句子（见 i18n/index.js 的 message()） */
     hint: null,
     traceOpen: false,
+    /**
+     * 这一轮画像被改动的字段（后端 PROFILE_UPDATED 事件给的），气泡下面那行「已记住」用它。
+     * 空数组表示这一轮没改。**加字段时 toPair() 也要一起加**——历史接口不返回过程明细，
+     * 漏了的话刷新之后这里会变成 undefined，模板上的判空要多写一处。
+     */
+    remembered: [],
   })
 }
 
@@ -466,6 +476,14 @@ function handleEvent(event, payload, reply) {
       // 开场预检索的结果。放在最前面（它是这一步之前发生的），并且**跳过也要显示** ——
       // 「没查知识库」和「查了没命中」是完全不同的两件事，混在一起就分不出来了
       reply.steps.unshift({ type: 'RETRIEVAL', text })
+      break
+
+    case 'PROFILE_UPDATED':
+      // 模型这一轮往画像里写了什么，显示成气泡下面那行「已记住」。
+      // **必须显式接住**：落到下面那条兜底上，text 会被当成正文片段拼进回答里。
+      // 后端刻意把这个事件的 text 留空，所以真漏了也只是不显示——但别指望这个，
+      // 哪天它带上 text 就会污染答案
+      reply.remembered = Array.isArray(payload?.changes) ? payload.changes : []
       break
 
     case 'TEXT':
@@ -554,6 +572,11 @@ function toPair(row) {
       failed: row.state === 'ERROR',
       hint: null,
       traceOpen: false,
+      // 「已记住」只有当次对话看得到：chat_record 这张表只存了答复和步数，
+      // 没有过程明细（和上面 historySteps 说的是同一件事）。
+      // 为一行瞬时回执去改表结构不划算，所以刷新之后它就不再出现——
+      // 那行本来也不是答案的一部分，是「刚刚发生了什么」的回执
+      remembered: [],
     })
   }
   return list
@@ -595,6 +618,80 @@ const STEP_LABEL_KEYS = {
 }
 
 const stepLabel = (type) => (STEP_LABEL_KEYS[type] ? $t(STEP_LABEL_KEYS[type]) : type)
+
+/**
+ * 画像字段 → 文案键。**键名是后端 `ProfileField` 的枚举名**，对不上时表现是
+ * 「这行少一项」而不报任何错，所以加字段时两边要一起改。
+ *
+ * 为什么不用 `settings.profile.*` 那批现成的标签：那些把单位写在里面（「身高（cm）」），
+ * 拼进句子会变成「身高（cm） 175」。这里要的是「体重 68kg」，值和单位是连着的，
+ * 形状不同，所以另起一组键。
+ */
+const REMEMBER_ITEM_KEYS = {
+  AGE: 'chat.remember.item.age',
+  HEIGHT_CM: 'chat.remember.item.heightCm',
+  WEIGHT_KG: 'chat.remember.item.weightKg',
+  GOAL: 'chat.remember.item.goal',
+  ACTIVITY_LEVEL: 'chat.remember.item.activityLevel',
+  DIET_PREFERENCE: 'chat.remember.item.dietPreference',
+  AVOID_FOOD: 'chat.remember.item.avoidFood',
+}
+
+/**
+ * 活动水平的枚举名 → 文案键。
+ *
+ * 这是前端**唯一**一处自己维护「枚举名 → 文案」，值得说清为什么：设置页那个下拉框的
+ * 选项 label 是后端一起发过来的、而且**没翻**（后端拿 label 当匹配依据，翻了画像就
+ * 回写不进库），所以那边只能显示没翻的中文；而这行提示里的值不需要回传，只用来读，
+ * 翻掉没有任何风险。
+ *
+ * 认不出的值直接不显示这一项，不会冒出 VERY_ACTIVE 这种内部名——
+ * 和上面那个 STEP_LABEL_KEYS 是同一个写法。
+ */
+const REMEMBER_ACTIVITY_KEYS = {
+  SEDENTARY: 'chat.remember.activity.SEDENTARY',
+  LIGHT: 'chat.remember.activity.LIGHT',
+  MODERATE: 'chat.remember.activity.MODERATE',
+  ACTIVE: 'chat.remember.activity.ACTIVE',
+  VERY_ACTIVE: 'chat.remember.activity.VERY_ACTIVE',
+}
+
+/** 最多显示几项，超出的折成「等 N 项」。模型一轮里改四五项是可能的，一行放不下 */
+const REMEMBER_MAX = 3
+
+/** 一项的正文；字段或值认不出来时返回空串（宁可少一项，也不要冒出内部名） */
+function rememberItemText(change) {
+  const key = REMEMBER_ITEM_KEYS[change?.field]
+  if (!key) return ''
+  let value = change.value
+  if (change.field === 'ACTIVITY_LEVEL') {
+    const activityKey = REMEMBER_ACTIVITY_KEYS[value]
+    if (!activityKey) return ''
+    value = $t(activityKey)
+  }
+  if (!value) return ''
+  return $t(key, { value })
+}
+
+/**
+ * 「已记住」这一行的正文（不含开头的标签和结尾的「查看」）。没有可显示的内容时返回空串。
+ *
+ * 写成**渲染期调用的普通函数**而不是 computed：它要按 msg 逐条算，而且必须跟着语言走——
+ * 和上面的 badgeOf / hintOf 是同一个写法，模板每次渲染都调一次，切语言它跟着变。
+ * 也不要图省事把结果存回 msg：存进去就冻在那一刻的语言里了。
+ */
+function rememberText(msg) {
+  const items = []
+  for (const change of msg.remembered ?? []) {
+    const text = rememberItemText(change)
+    if (text) items.push(text)
+  }
+  if (items.length > REMEMBER_MAX) {
+    const rest = items.length - REMEMBER_MAX
+    return `${items.slice(0, REMEMBER_MAX).join(' · ')} · ${$t('chat.remember.more', { n: rest })}`
+  }
+  return items.join(' · ')
+}
 
 const isLastAssistant = (msg) =>
   streaming.value && msg.role === 'assistant' && msg === messages.value[messages.value.length - 1]
@@ -917,6 +1014,22 @@ onBeforeUnmount(() => {
               </span>
             </div>
 
+            <!-- 「已记住」：模型这一轮往画像里写了什么。
+                 放在气泡**外面**：正文是模型说的话，这行是界面给的回执，
+                 混进正文的话模型换个措辞就把回执也改了。
+                 排在 hint 之前：hint 说的是「你接下来该怎么办」，
+                 这行说的是「这一轮发生了什么」，后者更靠近答案。
+                 「查看」送到 /profile 那一页：用户想问的是「它记住了什么」，
+                 而画像已经不住在设置抽屉里了（见 router/index.js 里那条注释） -->
+            <p v-if="rememberText(msg)" class="remembered">
+              <span class="remembered-label">{{ $t('chat.remember.title') }}</span>
+              <span class="remembered-items">{{ rememberText(msg) }}</span>
+              <span class="remembered-dot" aria-hidden="true">·</span>
+              <RouterLink class="remembered-view" to="/profile">
+                {{ $t('chat.remember.view') }}
+              </RouterLink>
+            </p>
+
             <p v-if="hintOf(msg)" class="hint">{{ hintOf(msg) }}</p>
           </div>
         </div>
@@ -942,6 +1055,11 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </div>
+
+    <!-- 画像补充弹窗。放在最后、且在 `.room` 外面：它是盖在整页上的一层浮层
+         （fixed + z-index），不是主区里的一块，塞进 `.room` 会让那块 flex 的
+         子元素多一个，以后调房间布局时要先绕过它 -->
+    <ProfilePrompt />
   </div>
 </template>
 
@@ -1598,6 +1716,53 @@ onBeforeUnmount(() => {
   color: var(--c-text-5);
   font-size: 12.5px;
   line-height: 1.6;
+}
+
+/*
+ * 「已记住」。位置和 .hint 是邻居（气泡下方左对齐一行），尺寸和颜色也照它来——
+ * 同一个位置出现两种字号会显得像两套东西。唯一不同的地方是「查看」用强调色：
+ * 它是这一行里唯一能点的东西。
+ * 颜色走 --c-* / --accent，深色下自动跟着变（.shell.dark 已经把它们翻过了）。
+ */
+.remembered {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: min(80%, 660px);
+  margin-top: 6px;
+  padding-left: 4px;
+  color: var(--c-text-5);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.remembered-items {
+  color: var(--c-text-4);
+}
+
+.remembered-dot {
+  color: var(--c-text-6);
+}
+
+/* 它是一个 RouterLink（<a>），不是按钮：点它是**换页**，不是在这一页上开个浮层。
+   按钮那套 reset 留着没坏处，但 background/border 现在本来就没有默认值 */
+.remembered-view {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  /* 按钮默认不继承字号和字体；<a> 会继承，这一行是给"万一以后改回按钮"兜底的 */
+  font: inherit;
+  color: var(--accent);
+  /* 下划线而不是胶囊底色：它长在句子里，是行内动作；
+     正文里的链接（.md :deep(a)）也是强调色 + 下划线，两者观感一致 */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.remembered-view:hover {
+  filter: brightness(1.1);
 }
 
 /* ------------------------------------------------------- markdown 正文样式 */

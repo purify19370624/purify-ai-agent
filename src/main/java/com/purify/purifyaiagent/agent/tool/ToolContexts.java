@@ -44,6 +44,14 @@ public final class ToolContexts {
     public static final String CHAT_ID_KEY = "chatId";
 
     /**
+     * 这一轮画像改动的收集器，见 {@link ProfileChangeCollector}。
+     *
+     * <p>它的值不是字符串，所以取它<b>不能</b>走 {@link #userIdOf} 那条会把值
+     * {@code toString()} 的路径——收集器会变成一段类名，然后什么都收不到。
+     */
+    public static final String PROFILE_CHANGES_KEY = "profileChanges";
+
+    /**
      * 占位键。
      *
      * <p>它的值是什么不重要，存在本身就是意义：只要它在，map 就非空，
@@ -64,10 +72,30 @@ public final class ToolContexts {
      * @param chatId 会话 id，可以为空（资料库那类需要归档的工具会跳过记录）
      */
     public static Map<String, Object> of(String userId, String chatId) {
+        return of(userId, chatId, null);
+    }
+
+    /**
+     * 构造一份工具上下文，并挂上这一轮的画像改动收集器。
+     *
+     * <p>给流式对话用：那边要在收尾时补一条「已记住」事件，所以需要一个能跨越
+     * 「工具执行」到「流结束」这段距离的容器。
+     *
+     * @param profileChanges 这一轮画像改动的收集器。为 {@code null} 表示「这一轮不收集」
+     *                       （设置页那条路径、看图、阻塞式对话都是这样），此时
+     *                       <b>不放这个键</b>，而不是放一个 null 值——{@code ToolContext}
+     *                       的底层可能对内容做防御性拷贝，而「键在但值是 null」
+     *                       还会让取值方多一种要判的情况
+     */
+    public static Map<String, Object> of(String userId, String chatId,
+                                         ProfileChangeCollector profileChanges) {
         Map<String, Object> context = new HashMap<>();
         context.put(PRESENT_KEY, Boolean.TRUE);
         putIfPresent(context, USER_ID_KEY, userId);
         putIfPresent(context, CHAT_ID_KEY, chatId);
+        if (profileChanges != null) {
+            context.put(PROFILE_CHANGES_KEY, profileChanges);
+        }
         return context;
     }
 
@@ -94,11 +122,31 @@ public final class ToolContexts {
         return valueOf(toolContext, CHAT_ID_KEY);
     }
 
+    /**
+     * 取画像改动收集器，没人收集时返回 {@code null}。
+     *
+     * <p><b>不返回 {@code Object} 去 instanceof 是不行的</b>，不能图省事复用下面那个
+     * {@link #valueOf}：它会把值 {@code toString()}，收集器被 toString 成一段类名之后
+     * 就彻底没用了，而且这种失败不报错——表现只是「已记住」那行永远不出现。
+     *
+     * <p>返回 null 是<b>正常情况</b>而不是异常：设置页、看图、阻塞式对话都不收集。
+     * 所以调用方判空跳过即可，不要抛。
+     */
+    public static ProfileChangeCollector profileChangesOf(ToolContext toolContext) {
+        Object value = rawOf(toolContext, PROFILE_CHANGES_KEY);
+        return value instanceof ProfileChangeCollector collector ? collector : null;
+    }
+
     private static String valueOf(ToolContext toolContext, String key) {
-        Object value = toolContext == null ? null : toolContext.getContext().get(key);
+        Object value = rawOf(toolContext, key);
         if (value == null || !StringUtils.hasText(value.toString())) {
             return null;
         }
         return value.toString();
+    }
+
+    /** 从上下文里按原样取值。判空只做一处，上面两个取值方法共用。 */
+    private static Object rawOf(ToolContext toolContext, String key) {
+        return toolContext == null ? null : toolContext.getContext().get(key);
     }
 }

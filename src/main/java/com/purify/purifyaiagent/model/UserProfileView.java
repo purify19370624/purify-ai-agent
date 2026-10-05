@@ -33,8 +33,14 @@ public record UserProfileView(
         List<WeightPoint> weightHistory,
         List<ActivityLevelOption> activityLevelOptions) {
 
-    /** 一次体重记录。名字不带 Record 后缀是为了不撞 {@code java.lang.Record} 的阅读负担。 */
-    public record WeightPoint(Double weightKg, LocalDateTime recordedAt) {
+    /**
+     * 一次体重记录。
+     *
+     * <p>{@code id} 是数据库主键，给页面上的「删掉这一条」用——
+     * 体重和记录时间都可能重复，没有它就没有一个能指着某一行的标识。
+     * 名字不带 Record 后缀是为了不撞 {@code java.lang.Record} 的阅读负担。
+     */
+    public record WeightPoint(Long id, Double weightKg, LocalDateTime recordedAt) {
     }
 
     /** 活动水平下拉框的一项。{@code value} 是要回传的枚举名，{@code label} 是给人看的。 */
@@ -49,7 +55,7 @@ public record UserProfileView(
      */
     public static UserProfileView from(UserProfile profile, List<UserProfile.WeightRecord> history) {
         List<WeightPoint> points = history == null ? List.of() : history.stream()
-                .map(record -> new WeightPoint(record.weightKg(), record.recordedAt()))
+                .map(record -> new WeightPoint(record.id(), record.weightKg(), record.recordedAt()))
                 .toList();
 
         List<ActivityLevelOption> options = Arrays.stream(ActivityLevel.values())

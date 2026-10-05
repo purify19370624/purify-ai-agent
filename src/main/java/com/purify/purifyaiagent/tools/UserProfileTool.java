@@ -1,5 +1,6 @@
 package com.purify.purifyaiagent.tools;
 
+import com.purify.purifyaiagent.agent.tool.ProfileChangeCollector;
 import com.purify.purifyaiagent.agent.tool.ToolContexts;
 import com.purify.purifyaiagent.model.ActivityLevel;
 import com.purify.purifyaiagent.model.UserProfile;
@@ -86,7 +87,7 @@ public class UserProfileTool {
             return profile.describe(List.of());
         }
 
-        List<UserProfile.WeightRecord> history = profileService.history(userId);
+        List<UserProfile.WeightRecord> history = profileService.recentHistory(userId);
         log.debug("[UserProfileTool] userId={} 读到画像，体重流水 {} 条", userId, history.size());
         return profile.describe(history);
     }
@@ -135,9 +136,25 @@ public class UserProfileTool {
         }
 
         // 合并、记流水这两件事在 service 里，和设置页那条路径共用同一份实现
-        UserProfile merged = profileService.update(userId, incoming);
+        ProfileService.UpdateResult result = profileService.update(userId, incoming);
 
-        return "已保存。当前画像：\n" + merged.describe(profileService.history(userId));
+        // 把这次真正改掉的字段交给收集器，由 SSE 在收尾前推给前端，
+        // 显示成气泡下面那行「已记住」。
+        //
+        // 收集器为 null 是**正常情况**（设置页、看图、阻塞式对话那条路径都没人收集），
+        // 所以这里判空跳过，而不是抛。收集器本身每请求一个、从 ToolContext 里取——
+        // 绝不可以改成在这个类里攒一份状态：它是单例 Bean，字段会被所有会话共享。
+        ProfileChangeCollector collector = ToolContexts.profileChangesOf(toolContext);
+        if (collector != null) {
+            collector.add(result.changes());
+        }
+
+        // 返回给模型的文本一个字都不改：模型看的是全量快照，用户看的是增量提示，
+        // 两者用途不同，别把它们合到一起。
+        // 流水用 recentHistory（10 条）而不是 history（全部）：这里是喂给模型的，
+        // 而全部流水可能有几百条，只为了让它知道「在降还是在涨」
+        return "已保存。当前画像：\n"
+                + result.profile().describe(profileService.recentHistory(userId));
     }
 
     /**

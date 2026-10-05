@@ -60,6 +60,16 @@ public class ApiException extends RuntimeException {
     public static final String DOCUMENT_INDEX_FAILED = "DOCUMENT_INDEX_FAILED";
 
     /**
+     * 用户画像里填进去的数字不像话（体重 720 公斤这种）。
+     *
+     * <p>单开一个码而不是并进 {@code INVALID_CHAT_REQUEST}：那个码的意思是
+     * 「这条对话请求本身不合法」，而画像有三条写入路径（设置页表单、对话里的工具、
+     * 体重记录接口），只有一条跟对话有关。混用之后前端按码分流时就得反推
+     * 「这次到底是哪条路径」，而那个信息在码里已经丢了。
+     */
+    public static final String INVALID_PROFILE = "INVALID_PROFILE";
+
+    /**
      * 注册/找回密码这条链路上「输入的东西不对」：用户名被占用、邮箱已注册、
      * 两次密码不一致、验证码错误或已过期。
      *
@@ -159,6 +169,11 @@ public class ApiException extends RuntimeException {
     /** 文档收下了，但解析/切片/写入做不下去。 */
     public static ApiException documentIndexFailed(String messageKey, Object... args) {
         return new ApiException(DOCUMENT_INDEX_FAILED, messageKey, args);
+    }
+
+    /** 画像里填进去的值不合法（目前只有体重超出合理范围这一种）。 */
+    public static ApiException invalidProfile(String messageKey, Object... args) {
+        return new ApiException(INVALID_PROFILE, messageKey, args);
     }
 
     /**

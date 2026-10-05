@@ -144,8 +144,15 @@ public record UserProfile(
         return text.toString();
     }
 
-    /** 体重流水的一条。只记录「什么时候多少公斤」，不记别的。 */
-    public record WeightRecord(double weightKg, LocalDateTime recordedAt) {
+    /**
+     * 体重流水的一条。只记录「什么时候多少公斤」，不记别的。
+     *
+     * <p>{@code id} 是数据库主键，<b>只给「删掉记错的那一条」用</b>：
+     * 页面上的记录列表要能指着某一行说「这条删掉」，而（重量, 时间）两者都可能重复，
+     * 拿它们当标识会删错行。生成本条记录时 {@code id} 可能为 null（还没有入库），
+     * 所以是包装类型。
+     */
+    public record WeightRecord(Long id, double weightKg, LocalDateTime recordedAt) {
     }
 
     /** 中国成人 BMI 分级，用来把数字翻译成一句人话。 */

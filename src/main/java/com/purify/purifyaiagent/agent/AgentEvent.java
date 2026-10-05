@@ -1,5 +1,9 @@
 package com.purify.purifyaiagent.agent;
 
+import com.purify.purifyaiagent.model.ProfileChange;
+
+import java.util.List;
+
 /**
  * 智能体跑动过程中往外抛的事件，流式接口（SSE）就是把它一条条发出去。
  *
@@ -10,12 +14,34 @@ package com.purify.purifyaiagent.agent;
  * <p>阻塞式接口不用这个类型，它直接返回 {@link AgentResult}：那边没有「中间过程」要展示，
  * 事件流攒完就是那个结果。
  *
- * @param type  事件类型，SSE 里同时用作事件名（{@code event: TOOL_CALL}）
- * @param text  事件正文，含义随类型而定，见下面各工厂方法
- * @param state 只有终态事件（{@link Type#FINAL} / {@link Type#QUESTION} / {@link Type#ERROR}）
- *              才非 null，告诉调用方这次 run 是以什么状态收的尾；中间事件一律为 null
+ * @param type    事件类型，SSE 里同时用作事件名（{@code event: TOOL_CALL}）
+ * @param text    事件正文，含义随类型而定，见下面各工厂方法
+ * @param state   只有终态事件（{@link Type#FINAL} / {@link Type#QUESTION} / {@link Type#ERROR}）
+ *                才非 null，告诉调用方这次 run 是以什么状态收的尾；中间事件一律为 null。
+ *                <b>加新事件时不要碰它</b>——{@code PurifyManus#chatStream} 靠
+ *                {@code state() != null} 判终态，非收尾事件带上它会把落库的问答记错
+ * @param changes 只有 {@link Type#PROFILE_UPDATED} 会用到，装着这次改动的画像字段；
+ *                其余事件一律是空表。之所以给结构化数据单开一个字段而不是塞进 {@code text}：
+ *                前端一旦漏了这个事件的 case，兜底分支会把 {@code text} 当成正文片段
+ *                追加进回答里——塞 JSON 进去的话，用户会看到答案末尾挂着一串花括号
  */
-public record AgentEvent(Type type, String text, AgentState state) {
+public record AgentEvent(Type type, String text, AgentState state, List<ProfileChange> changes) {
+
+    /**
+     * 把 null 折成空表。这样 {@code changes} 永远非 null，前端不用到处判空，
+     * 序列化出来也永远有这一项——形状固定比忽有忽无好接。
+     */
+    public AgentEvent {
+        changes = changes == null ? List.of() : List.copyOf(changes);
+    }
+
+    /**
+     * 不带结构化数据的事件。绝大多数事件（TEXT / STEP / FINAL……）都属于这一类，
+     * 给它们省掉一个永远是空表的参数。
+     */
+    public AgentEvent(Type type, String text, AgentState state) {
+        this(type, text, state, List.of());
+    }
 
     public enum Type {
 
@@ -45,6 +71,23 @@ public record AgentEvent(Type type, String text, AgentState state) {
          * 正文里只放条数和文档名，不放切片原文——SSE 是逐条推送的，塞原文会把流刷爆。
          */
         RETRIEVAL,
+
+        /**
+         * 模型往用户画像里写了东西，{@code changes} 里装了改了哪些字段。
+         * 前端在气泡下面显示一行「已记住」，让用户知道模型刚才把什么记下来了。
+         *
+         * <p><b>为什么不复用 TOOL_CALL / TOOL_RESULT。</b>轻语这条链路根本不发那两种事件
+         * （工具调用被 DashScope 的流式实现内部消化了，见 {@code SlimApp#chatStream} 的说明）；
+         * 就算在智能体那条链路上，过程区也是「给想深挖的人看的调试视图」，默认折叠，
+         * 而这个提示是给用户看的回执。两者的受众和呈现都不一样，
+         * 合成一个只会让前端到处判「这条到底要不要显眼地画」。
+         *
+         * <p><b>{@code text} 刻意留空串、{@code state} 为 null。</b>留空是兜底：
+         * 前端万一漏了这个 case 落到「未知事件当正文追加」那条兜底上，追加的是空串，
+         * 而不是一句中文或一段 JSON。state 为 null 则保证它不会被当成收尾事件、
+         * 也不会被算成一步。
+         */
+        PROFILE_UPDATED,
 
         /** 需要用户回答，text 是问题。这次 run 就此暂停。 */
         QUESTION,
@@ -91,6 +134,17 @@ public record AgentEvent(Type type, String text, AgentState state) {
      */
     public static AgentEvent retrieval(String summary) {
         return new AgentEvent(Type.RETRIEVAL, summary, null);
+    }
+
+    /**
+     * 这一轮写进画像的字段。
+     *
+     * <p><b>不在这里拼「体重 68kg」。</b>拼出来的是句子，会冻在事件里，
+     * 用户切语言不会重算——和前端那条「存键不存句子」是同一条规矩。
+     * 这里只给字段名和值，说法由前端按当前语言取。
+     */
+    public static AgentEvent profileUpdated(List<ProfileChange> changes) {
+        return new AgentEvent(Type.PROFILE_UPDATED, "", null, changes);
     }
 
     public static AgentEvent question(String question) {

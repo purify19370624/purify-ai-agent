@@ -5,7 +5,7 @@ import * as auth from '../auth.js'
 /**
  * 路由表。
  *
- * 主页是公开的（未登录也能看），三个功能页都要登录：没有登录态就用不了，
+ * 主页是公开的（未登录也能看），几个功能页都要登录：没有登录态就用不了，
  * 这是需求定下来的规则，所以守卫把整页挡在门外，而不是「进去了但发不了消息」——
  * 后者会让人以为功能坏了。
  *
@@ -13,6 +13,15 @@ import * as auth from '../auth.js'
  */
 const routes = [
   { path: '/', name: 'home', component: HomeView },
+
+  // 使用说明。**公开页**——首页页脚那一栏「关于」指到这里，还没注册的人
+  // 也该能先看清楚这是什么、要怎么用。异步加载的理由和认证页一样：
+  // 它是从页脚点进去的次级页面，没有理由占首屏的代码
+  {
+    path: '/guide',
+    name: 'guide',
+    component: () => import('../views/GuideView.vue'),
+  },
 
   // 认证页面。同样异步加载：未登录的人第一眼看到的是主页，
   // 不该为了一个可能用不上的登录页把它的代码也塞进首屏
@@ -44,6 +53,27 @@ const routes = [
     name: 'knowledge',
     component: () => import('../views/KnowledgeView.vue'),
     meta: { requiresAuth: true, requiresAdmin: true },
+  },
+
+  // 体重变化。**从设置抽屉里搬出来的**：它是一个会被反复打开的东西
+  // （称一次就想看一眼），而抽屉是「改资料」的地方，进去要两步、还得滚过一整张表单。
+  // 异步加载，因为未登录的访客看不到入口，首屏不该带上它
+  {
+    path: '/weight',
+    name: 'weight',
+    component: () => import('../views/WeightView.vue'),
+    meta: { requiresAuth: true },
+  },
+
+  // 我的情况（用户画像）。**同样是从设置抽屉里搬出来的**，理由比体重那条更硬：
+  // 画像是一份会被反复**查看**的资料（「它现在以为我是什么情况」），而不是一组设置；
+  // 而且模型在对话里一直在往里写，气泡下面那行「已记住」的查看入口就该落到这里。
+  // 抽屉现在只留一行摘要加一个入口，和体重那边一个形状
+  {
+    path: '/profile',
+    name: 'profile',
+    component: () => import('../views/ProfileView.vue'),
+    meta: { requiresAuth: true },
   },
 
   // 兜底：手输错地址时别给一个白屏

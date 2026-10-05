@@ -1,6 +1,7 @@
 package com.purify.purifyaiagent.controller;
 
 import com.purify.purifyaiagent.agent.AgentEvent;
+import com.purify.purifyaiagent.agent.tool.ProfileChangeCollector;
 import com.purify.purifyaiagent.app.SlimApp;
 import com.purify.purifyaiagent.auth.CurrentUser;
 import com.purify.purifyaiagent.auth.LoginUser;
@@ -18,6 +19,7 @@ import com.purify.purifyaiagent.media.ImageTypes;
 import com.purify.purifyaiagent.model.ChatHistoryItem;
 import com.purify.purifyaiagent.model.ChatReply;
 import com.purify.purifyaiagent.model.ChatRequest;
+import com.purify.purifyaiagent.model.ProfileChange;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.http.MediaType;
@@ -115,16 +117,44 @@ public class SlimAppController {
         // 语言在**请求线程上**取一次，然后沿着这条 Flux 传下去。
         // 流里的算子和 onErrorResume 都跑在别的线程上，那时候 LocaleContextHolder 已经不准了
         Messages i18n = messageResolver.current();
-        Flux<AgentEvent> events = slimApp.chatStream(message, id, me.id(), i18n)
+        // 这一轮模型对画像的改动。工具跑在 Reactor 线程上（调用过程被 DashScope 的流式实现
+        // 内部消化了），和这里不是同一个线程，所以收集器本身必须线程安全
+        ProfileChangeCollector profileChanges = new ProfileChangeCollector();
+
+        Flux<AgentEvent> events = slimApp.chatStream(message, id, me.id(), i18n, profileChanges)
                 .doOnNext(full::append)
                 .map(AgentEvent::text)
                 // 必须包一层 defer：concatWith 的参数是在方法返回前就构造好的，
-                // 直接写 AgentEvent.finished(full.toString()) 的话，那时候流还没跑，攒出来是空的
-                .concatWith(Flux.defer(() -> Flux.just(AgentEvent.finished(full.toString()))))
+                // 直接写 AgentEvent.finished(full.toString()) 的话，那时候流还没跑，攒出来是空的。
+                // 「已记住」也在这个 defer 里取——它必须等上游全部跑完之后才读得到内容
+                .concatWith(Flux.defer(() -> Flux.fromIterable(
+                        tail(profileChanges, AgentEvent.finished(full.toString())))))
                 // 流式场景下异常发生在订阅之后，@RestControllerAdvice 拦不到，这里就地降级
-                .onErrorResume(error -> Flux.just(terminalEvent(error, i18n)));
+                .onErrorResume(error -> Flux.fromIterable(tail(profileChanges, terminalEvent(error, i18n))));
 
         return SseEvents.response(id, events);
+    }
+
+    /**
+     * 收尾事件前面要不要再补一条「已记住」。
+     *
+     * <p><b>顺序不能反：提示必须排在 FINAL / ERROR 之前。</b>终态事件是这一轮的终点，
+     * 后面再发等于发了一条没人看的东西——在终态处停下的消费方是常见写法
+     * （{@code PurifyManus#chatStream} 就是这么数步数、收落库内容的）。
+     *
+     * <p><b>错误路径也要 drain。</b>画像这时候已经写进库了：那是另一次连接上的一次 insert，
+     * 不会因为模型这次输出失败而回滚。不说一声的话，用户以为这一轮什么都没发生，
+     * 而设置页里的数字已经变了。宁可让提示和报错一起出现，也不要静默地改掉用户的数据。
+     *
+     * <p>收集器为空时（模型这轮没动画像，或者只是把已知的值又传了一遍）什么都不补——
+     * 不发一条空的「已记住」。
+     */
+    private static List<AgentEvent> tail(ProfileChangeCollector profileChanges, AgentEvent terminal) {
+        List<ProfileChange> changes = profileChanges.drain();
+        if (changes.isEmpty()) {
+            return List.of(terminal);
+        }
+        return List.of(AgentEvent.profileUpdated(changes), terminal);
     }
 
     /**
