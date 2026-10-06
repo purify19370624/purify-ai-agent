@@ -124,12 +124,20 @@ public class VerifyCodeService {
     }
 
     /**
-     * 邮箱归一化 + 非空校验。两条发送路径共用，免得有一边漏掉校验。
+     * 邮箱归一化 + 校验。两条发送路径共用，免得有一边漏掉校验。
+     *
+     * <p><b>形状也要挡，而且和注册那条路用同一个方法。</b>原先这里只判了空，
+     * 于是一个漏了 {@code @} 的地址能被发出去，一路走到 SMTP 才炸；
+     * 而那时候 {@code EmailSender} 抛的是一句硬编码中文的 {@code IllegalArgumentException}，
+     * 全局异常处理器又没有兜底分支，用户拿到的是 500。
      */
     private static String requireEmail(String email) {
         String normalized = UserRepository.normalizeEmail(email);
         if (!StringUtils.hasText(normalized)) {
             throw ApiException.authInvalid("error.auth.emailRequired");
+        }
+        if (!UserRepository.looksLikeEmail(normalized)) {
+            throw ApiException.authInvalid("error.auth.emailInvalid");
         }
         return normalized;
     }

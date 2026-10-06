@@ -216,15 +216,28 @@ export default {
   auth: {
     shellBack: '返回首页',
 
+    /*
+     * 邮箱形状不对时那句话。注册页和找回密码页**共用**（两页的邮箱校验本来就是同一套，
+     * 见 emailRules.js），所以它挂在这一层，而不是 auth.register.* / auth.forgot.* 里——
+     * 挂成两份的话，改文案时只会改一处，表现是「找回密码页还在说旧话」。
+     *
+     * 它会出现在两个位置：邮箱输入框右侧的就地提示（灰色小字），以及提交时的错误条。
+     * 所以写得短一点，两处都放得下。
+     */
+    emailInvalid: '邮箱格式不正确，请检查一下',
+
     login: {
       title: '登录',
       subtitle: '登录后才能开始对话、查看自己的历史记录。',
-      username: '用户名',
-      usernamePlaceholder: '请输入用户名',
+      // 这一栏用户名和邮箱都能填（后端的优先级见 UserRepository#findForLogin）。
+      // 标签写成「用户名 / 邮箱」而不是只说「用户名」：只说用户名的话，
+      // 用邮箱注册的人会以为自己得先去哪查一下用户名才能登录
+      username: '用户名 / 邮箱',
+      usernamePlaceholder: '用户名或邮箱',
       password: '密码',
       passwordPlaceholder: '请输入密码',
       forgot: '忘记密码？',
-      needUsername: '请输入用户名',
+      needUsername: '请输入用户名或邮箱',
       needPassword: '请输入密码',
       failed: '登录失败，请稍后重试。',
       submitting: '登录中…',

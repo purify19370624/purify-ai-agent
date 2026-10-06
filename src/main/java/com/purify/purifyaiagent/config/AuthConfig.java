@@ -47,12 +47,15 @@ public class AuthConfig {
     }
 
     /**
-     * 头像的落盘。目录和对外地址都由它自己管，见 {@link AvatarStorage}——
-     * 存本地而不是传 OSS 的理由也写在那里。
+     * 头像上传。落在阿里云 OSS 上，和生成 PDF 共用同一个客户端
+     * （{@link AliyunOssClient}，包括「配置齐没齐」和「endpoint 怎么剥」的判定）。
+     *
+     * <p>为什么从「写本地磁盘」改成 OSS、以及**不做数据迁移**时老头像怎么处理，
+     * 都写在 {@link AvatarStorage} 的类注释里。
      */
     @Bean
-    public AvatarStorage avatarStorage() {
-        return new AvatarStorage();
+    public AvatarStorage avatarStorage(AliyunOssClient ossClient) {
+        return new AvatarStorage(ossClient);
     }
 
     @Bean

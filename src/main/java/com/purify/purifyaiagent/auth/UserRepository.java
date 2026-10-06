@@ -14,6 +14,7 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * {@code user} 表的读写。
@@ -67,7 +68,7 @@ public class UserRepository {
     }
 
     /**
-     * 按用户名查一个<b>可用</b>的账号，供登录使用。
+     * 按「用户名<b>或</b>邮箱」查一个<b>可用</b>的账号，供登录使用。
      *
      * <p>这里就过滤掉 {@code is_deleted = 0}，而不是查出来再在 Java 里判：
      * 被删的账号在鉴权链路里根本不该存在，越早挡掉越不容易在某个分支里被漏掉。
@@ -76,9 +77,35 @@ public class UserRepository {
      * <p>不加 {@code status} 条件：被禁用的账号要能查出来才能给用户
      * 「账号已被禁用」这句提示（比「用户名或密码不正确」有用得多）。
      * 放行与否由 {@link UserAccount#canLogin()} 判断。
+     *
+     * <h2>为什么是「先用户名、再邮箱」，而不是「含 @ 就当邮箱」</h2>
+     *
+     * <p><b>用户名没有字符限制</b>（见 {@code AuthService#requireUsername}，它只查长度和空白），
+     * 所以 {@code zhang@gmail.com} 是一个合法用户名。按形状判断的话，这种账号会
+     * 突然登不进来——而且是在这次改动之后才登不进来的，最难查的那种。
+     *
+     * <p>代价是一个理论上存在、实践里几乎不会发生的歧义：甲的用户名恰好等于乙的邮箱时，
+     * 乙用邮箱登录会先命中甲那条记录，然后因为密码对不上被拒。
+     * 真出现的话让乙用自己的用户名登录即可。**这里不做「用户名和邮箱两处都不许撞」的交叉校验**：
+     * 那要给注册加两次查询，而它挡的是一个只有刻意构造才可能的场景。
+     *
+     * <p>两次查询而不是一条 {@code username = ? OR email = ?}：后者在「两个条件各命中一行」
+     * 时返回哪一行由数据库决定，而这里的优先级必须是确定的。登录不是高频路径，多一次查询无所谓。
      */
-    public Optional<UserAccount> findForLogin(String username) {
-        return queryOne("SELECT " + COLUMNS + " FROM `user` WHERE username = ? AND is_deleted = 0", username);
+    public Optional<UserAccount> findForLogin(String usernameOrEmail) {
+        Optional<UserAccount> byUsername = queryOne(
+                "SELECT " + COLUMNS + " FROM `user` WHERE username = ? AND is_deleted = 0", usernameOrEmail);
+        if (byUsername.isPresent()) {
+            return byUsername;
+        }
+        // 邮箱在库里是归一化过的（trim + 小写，见 normalizeEmail），所以这里必须先归一化，
+        // 否则 A@Example.com 查不到 a@example.com。
+        // normalizeEmail 对空值返回 null，正好顺手挡掉「输入是空串还要白查一次」
+        String email = normalizeEmail(usernameOrEmail);
+        if (email == null) {
+            return Optional.empty();
+        }
+        return queryOne("SELECT " + COLUMNS + " FROM `user` WHERE email = ? AND is_deleted = 0", email);
     }
 
     /**
@@ -252,5 +279,32 @@ public class UserRepository {
      */
     public static String normalizeEmail(String email) {
         return StringUtils.hasText(email) ? email.trim().toLowerCase() : null;
+    }
+
+    /**
+     * 邮箱形状的规则。**和前端 {@code emailRules.js} 里那条必须一致。**
+     *
+     * <p>放在这里而不是各自写一份：原先「注册」和「发验证码」两条路各有一个
+     * {@code requireEmail}，判据还不一样——注册那边查了形状，发验证码那边只判了空。
+     * 结果是一个漏了 {@code @} 的地址能被发出去，一路走到 SMTP 才炸。
+     * 同一个概念有两套判据，出的就是这种「只坏一半」的问题。
+     *
+     * <p>规则刻意宽松，只挡最常见的几种笔误：漏了 {@code @}、只写到 {@code @gmail}、
+     * 域名里没有点、中间带了空白。<b>不去实现 RFC 5322</b>——真正合法的邮箱地址比
+     * 大多数人以为的宽松得多（引号里的本地部分可以带空格、甚至可以带 {@code @}），
+     * 把那些一并判错的代价是那部分人根本注册不了这个站。这个取舍的理由原本写在
+     * {@code AuthService#requireEmail} 上，现在挪到这里，只留一份。
+     *
+     * <p>刻意不限制字符集：中文域名和中文用户名（{@code 用户@例子.中国}）都该放过去。
+     * 它是不是可达由 SMTP 去判断，不该由这里替收件方做主。
+     *
+     * <p>那条线划在「域名必须带点」上：{@code "a b"@x.com} 这类会被拦下（实践里几乎不存在），
+     * 而漏掉 {@code .com} 的 {@code zhangsan@gmail} 每天都在发生。
+     */
+    private static final Pattern EMAIL_SHAPE = Pattern.compile("^[^\\s@]+@[^\\s@.]+(\\.[^\\s@.]+)+$");
+
+    /** 是不是「像个邮箱」。自己也会 trim，传没归一化过的值进来也不会得出错误结论。 */
+    public static boolean looksLikeEmail(String email) {
+        return StringUtils.hasText(email) && EMAIL_SHAPE.matcher(email.trim()).matches();
     }
 }

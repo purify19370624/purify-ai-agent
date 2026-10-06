@@ -31,17 +31,29 @@ public class StaticResourceConfig implements WebMvcConfigurer {
     private static final String DOWNLOAD_URL_PATTERN = "/files/download/**";
 
     /**
-     * 头像的访问前缀，要和 {@code AvatarStorage.URL_PREFIX} 一致。
+     * 头像的访问前缀。
+     *
+     * <p><b>新上传的头像已经不经过这条映射了。</b>改动之后头像存在阿里云 OSS 上、
+     * 地址是绝对的（见 {@code AvatarStorage}）。这条留着的唯一目的是**兼容库里那批旧值**：
+     * 它们是相对地址 {@code /files/avatar/xxx.jpg}，对应的文件还躺在本地磁盘上，
+     * 而这次改动明确不做数据迁移。
+     *
+     * <p>为什么是「留着」而不是「直接删掉」：删掉的表现是所有老用户的头像立刻变裂图，
+     * 而他们其实什么都不用做——自己换一次头像就自动落到 OSS 上了。留这条映射的成本是零。
+     * 等哪天确认没人还引用旧地址，把下面这一行、这个常量、
+     * 以及 {@code FileConstant.AVATAR_DIR} 一起删掉即可。
      *
      * <p>它和下载目录是<b>两个分开的映射</b>，而不是把头像也放进下载目录：
      * 那个目录是「工具抓回来的东西」，会被清理；头像不该跟着一起消失。
+     * （这条理由在头像搬到 OSS 之后仍然成立——旧文件还在这儿。）
      */
     private static final String AVATAR_URL_PATTERN = "/files/avatar/**";
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         mapDirectory(registry, DOWNLOAD_URL_PATTERN, FileConstant.DOWNLOAD_DIR, "下载工具的链接指向这里");
-        mapDirectory(registry, AVATAR_URL_PATTERN, FileConstant.AVATAR_DIR, "用户头像指向这里");
+        mapDirectory(registry, AVATAR_URL_PATTERN, FileConstant.AVATAR_DIR,
+                "旧头像（改用 OSS 之前上传的那批）指向这里");
     }
 
     /** 把一个本地目录挂到一个 URL 前缀上，两个映射的写法保持一致。 */

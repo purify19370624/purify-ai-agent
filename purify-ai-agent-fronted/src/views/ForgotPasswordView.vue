@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import AuthShell from '../components/AuthShell.vue'
 import * as authApi from '../api/auth.js'
 import { useVerifyCode } from '../useVerifyCode.js'
+import { looksLikeEmail } from '../emailRules.js'
 import { message, rawMessage, resolveMessage } from '../i18n/index.js'
 
 /**
@@ -42,12 +43,16 @@ const done = ref(false)
 
 const passwordMismatch = computed(() => confirm.value.length > 0 && password.value !== confirm.value)
 
+/** 和注册页同一套：空着不算格式不对，规则在 `emailRules.js`。 */
+const emailInvalid = computed(() => email.value.trim().length > 0 && !looksLikeEmail(email.value))
+
 const canSubmit = computed(
   () =>
     !submitting.value &&
     Boolean(email.value.trim()) &&
     Boolean(codeValue.value.trim()) &&
     Boolean(password.value) &&
+    !emailInvalid.value &&
     !passwordMismatch.value,
 )
 
@@ -55,6 +60,11 @@ async function submit() {
   if (submitting.value) return
   formError.value = null
 
+  // 兜底：输入框里按回车触发的隐式提交不一定经过那个 disabled 的按钮
+  if (!looksLikeEmail(email.value)) {
+    formError.value = message('auth.emailInvalid')
+    return
+  }
   if (passwordMismatch.value) {
     formError.value = message('auth.forgot.mismatch')
     return
@@ -89,7 +99,10 @@ async function submit() {
 
     <form v-else @submit.prevent="submit">
       <label class="field">
-        <span class="field-label">{{ $t('auth.forgot.email') }}</span>
+        <span class="field-label">
+          {{ $t('auth.forgot.email') }}
+          <span v-if="emailInvalid" class="field-hint">{{ $t('auth.emailInvalid') }}</span>
+        </span>
         <span class="field-row">
           <input
             v-model="email"

@@ -143,26 +143,26 @@ public class AuthService {
     }
 
     /**
-     * 登录。
+     * 登录。账号那一栏**用户名和邮箱都能用**，优先级见 {@code UserRepository#findForLogin}。
      *
-     * <p><b>「用户名不存在」和「密码不对」返回同一句话</b>，否则这个接口就成了
-     * 一个账号枚举器：攻击者可以靠消息的差异批量试出哪些用户名是存在的。
+     * <p><b>「账号不存在」和「密码不对」返回同一句话</b>，否则这个接口就成了
+     * 一个账号枚举器：攻击者可以靠消息的差异批量试出哪些用户名（或哪些邮箱）是存在的。
      * 被禁用/被删除则单独给一句话——那是用户能采取行动的（联系管理员），
      * 而且账号是否存在这件事，在那个时刻已经由「他注册过」表明了。
      *
-     * <p><b>用户名不存在时也会跑一次 BCrypt 比对</b>（拿一个固定哈希去比），
-     * 这是为了让两条路径的耗时接近。不跑的话，「用户名不存在」会立刻返回，
+     * <p><b>账号不存在时也会跑一次 BCrypt 比对</b>（拿一个固定哈希去比），
+     * 这是为了让两条路径的耗时接近。不跑的话，「账号不存在」会立刻返回，
      * 而「密码不对」要等几十毫秒的哈希计算——时间差本身就把答案说出去了，
      * 前面那句「同一句话」也就白费了。
      */
     public LoginResponse login(LoginRequest request, String clientIp) {
-        String username = request.username() == null ? "" : request.username().trim();
+        String identifier = request.username() == null ? "" : request.username().trim();
         String password = request.password() == null ? "" : request.password();
 
-        Optional<UserAccount> found = userRepository.findForLogin(username);
+        Optional<UserAccount> found = userRepository.findForLogin(identifier);
         if (found.isEmpty()) {
             passwordEncoder.matches(password, DUMMY_HASH);
-            log.debug("[Auth] 登录失败：用户名不存在");
+            log.debug("[Auth] 登录失败：用户名和邮箱都没有匹配到可用账号");
             throw ApiException.authInvalid("error.auth.badCredentials");
         }
 
@@ -274,10 +274,10 @@ public class AuthService {
         if (!StringUtils.hasText(normalized)) {
             throw ApiException.authInvalid("error.auth.emailRequired");
         }
-        // 只做最基本的形状检查。**故意不用复杂的邮箱正则**：它们几乎都是错的
-        // （真正合法的地址比大多数人以为的宽松得多），错杀一个合法地址的代价
-        // 是用户根本注册不了，而多收一个畸形地址的代价只是那封邮件发不出去
-        if (!normalized.contains("@") || normalized.startsWith("@") || normalized.endsWith("@")) {
+        // 形状规则挪到了 UserRepository#looksLikeEmail：原先这里一份、
+        // VerifyCodeService 那边一份（而且那边只判了空），同一个概念两套判据。
+        // 为什么不用复杂的邮箱正则，那条理由跟着规则一起挪过去了
+        if (!UserRepository.looksLikeEmail(normalized)) {
             throw ApiException.authInvalid("error.auth.emailInvalid");
         }
         // 长度必须在入口挡住，交给数据库拦会变成 500，理由见 EMAIL_MAX_LENGTH

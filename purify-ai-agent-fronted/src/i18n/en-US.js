@@ -212,15 +212,29 @@ export default {
   auth: {
     shellBack: 'Back to home',
 
+    /*
+     * Shown when the email doesn’t look like an address. The register and reset-password
+     * pages **share** it (both use the same rule, see emailRules.js), so it lives at this
+     * level rather than under auth.register.* / auth.forgot.* — two copies would drift, and
+     * the symptom would be one page still saying the old thing.
+     *
+     * It shows up in two places: the inline hint beside the email field and the error strip on
+     * submit. Keep it short enough for both.
+     */
+    emailInvalid: 'That doesn’t look like a valid email address',
+
     login: {
       title: 'Sign in',
       subtitle: 'Sign in to start chatting and see your own history.',
-      username: 'Username',
-      usernamePlaceholder: 'Enter your username',
+      // Either a username or an email works here (precedence is in UserRepository#findForLogin).
+      // The label says both: with only “Username”, anyone who signed up with an email would think
+      // they have to go and look up a username first.
+      username: 'Username or email',
+      usernamePlaceholder: 'Username or email',
       password: 'Password',
       passwordPlaceholder: 'Enter your password',
       forgot: 'Forgot password?',
-      needUsername: 'Please enter your username',
+      needUsername: 'Please enter your username or email',
       needPassword: 'Please enter your password',
       failed: 'Sign-in failed, please try again later.',
       submitting: 'Signing in…',

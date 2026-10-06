@@ -70,19 +70,33 @@ public final class ImageTypes {
     }
 
     /**
-     * 判定类型并返回一个可以安全拼进文件名的扩展名。
+     * 一次判定拿到的两样东西：可以安全拼进文件名的扩展名，和回给浏览器的 Content-Type。
      *
-     * <p>返回的字符串来自上面那张常量表，不含用户输入的任何字符，
-     * 所以调用方拿它拼路径不存在路径穿越或注入的问题。
+     * <p>合成一个返回值是因为它们本来就出自同一次判定。拆成两个方法的话，调用方要么
+     * 判定两遍，要么自己再维护一张「扩展名 → MIME」的映射表——而后者正是这个类
+     * 当初要消掉的那种重复（见类注释）。
      */
-    public static String safeExtension(MultipartFile file) {
+    public record StorableImage(String extension, MimeType contentType) {
+    }
+
+    /**
+     * 判定类型，返回落盘/入库需要的扩展名与 Content-Type。
+     *
+     * <p>扩展名字符串来自上面那张常量表，不含用户输入的任何字符，
+     * 所以调用方拿它拼对象键或文件名不存在路径穿越或注入的问题。
+     *
+     * <p>Content-Type 要一起带出去，是因为它得**原样写进对象存储**：
+     * 不写的话 OSS 会按 {@code application/octet-stream} 存，浏览器拿到它多半
+     * 不会当成图片渲染，表现是点头像变成下载一个文件。
+     */
+    public static StorableImage resolveStorable(MultipartFile file) {
         MimeType mimeType = resolve(file);
         String subtype = mimeType.getSubtype() == null ? "" : mimeType.getSubtype().toLowerCase();
         String extension = ALLOWED.get(subtype);
         if (extension == null) {
             throw ApiException.invalidImage("error.image.formatUnsupported", String.join(" / ", ALLOWED.values()));
         }
-        return extension;
+        return new StorableImage(extension, mimeType);
     }
 
     /** 校验大小。{@code maxBytes} 传 0 或负数表示不检查。 */

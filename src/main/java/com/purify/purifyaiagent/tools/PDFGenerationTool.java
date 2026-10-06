@@ -1,9 +1,7 @@
 package com.purify.purifyaiagent.tools;
 
-import com.aliyun.oss.OSS;
-import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.model.ObjectMetadata;
-import com.purify.purifyaiagent.config.AliyunOssProperties;
+import com.purify.purifyaiagent.config.AliyunOssClient;
 import com.purify.purifyaiagent.resource.ResourceKind;
 import com.purify.purifyaiagent.resource.ResourceRecorder;
 import com.itextpdf.kernel.font.PdfFont;
@@ -12,54 +10,42 @@ import com.itextpdf.kernel.pdf.PdfDocument;
 import com.itextpdf.kernel.pdf.PdfWriter;
 import com.itextpdf.layout.Document;
 import com.itextpdf.layout.element.Paragraph;
-import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.util.StringUtils;
-import org.springframework.web.util.UriUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
  * 把一段文字渲染成中文 PDF 并上传到阿里云 OSS，返回下载链接。
  * 体检报告、一周食谱这类「拿得走」的产出用它。
  *
- * <p><b>OSS 客户端是本类自己懒创建的，不是构造时注入的。</b>这样换来两件事：
- * <ul>
- *   <li>没配 OSS 的应用照样能启动——构造期不碰网络，也就不会因为凭证缺失或
- *       endpoint 写错把整个应用拖死；</li>
- *   <li>配了 OSS 的应用，客户端也只在<b>第一次真的调用</b>时才建起来。
- *       一次都没用过 PDF 的场景，不必养着一个连接池。</li>
- * </ul>
- * 代价是首次调用会慢一点（几十毫秒），对这个场景完全可以接受。
- * 客户端由 {@link #close()} 关闭，本类是 Spring 管理的 Bean，容器关闭时会调到。
+ * <p><b>OSS 客户端是注入的，而且是全应用共用的那一个</b>（见 {@link AliyunOssClient}）。
+ * 原先这里自己懒创建一个，头像那边另起一套；两套并存的问题不是多几条连接，
+ * 而是「配置齐没齐」和「endpoint 怎么剥协议头」会出现**两份判定**，
+ * 而那种不一致只会在其中一个功能上暴露。
+ *
+ * <p>懒创建的性质没有丢，只是挪进了那个共用的类：构造期不碰网络，
+ * 所以没配 OSS 的应用照样能启动；一次都没用过 OSS 的场景也不必养着一个连接池。
+ *
+ * <p><b>本类不再负责关闭客户端。</b>那个客户端是共用的，谁关谁就会把对方
+ * （头像上传）的连接一起掐掉；关闭统一由 {@link AliyunOssClient#close()} 在容器退出时做。
  */
 @Slf4j
 public class PDFGenerationTool {
 
-    private final AliyunOssProperties properties;
+    private final AliyunOssClient oss;
 
     /** 产出之后往资料库记一笔。见 {@code ResourceRecorder}——它不抛异常，不会拖累本工具。 */
     private final ResourceRecorder resourceRecorder;
 
-    /** 只存「去掉协议头」的域名，拼下载链接和建客户端都用它，避免两处各解析一遍。 */
-    private final String endpointHost;
-
-    /** 懒创建的客户端。用 volatile + 双重检查：工具有可能被并发调用。 */
-    private volatile OSS ossClient;
-
-    public PDFGenerationTool(AliyunOssProperties properties, ResourceRecorder resourceRecorder) {
-        this.properties = properties;
+    public PDFGenerationTool(AliyunOssClient oss, ResourceRecorder resourceRecorder) {
+        this.oss = oss;
         this.resourceRecorder = resourceRecorder;
-        // 配置里可能写了 https://，也可能只写了域名，统一剥成裸域名
-        this.endpointHost = properties.getEndpoint() == null
-                ? ""
-                : properties.getEndpoint().replaceFirst("^https?://", "").replaceAll("/+$", "");
     }
 
     @Tool(description = "把内容生成一份 PDF 文件并返回下载链接。"
@@ -70,7 +56,7 @@ public class PDFGenerationTool {
             @ToolParam(description = "要写进 PDF 的完整内容，支持换行") String content,
             ToolContext toolContext) {
 
-        if (!properties.isConfigured()) {
+        if (!oss.isConfigured()) {
             log.warn("[PDFGenerationTool] 被调用，但 aliyun.oss.* 没有配齐，无法生成 PDF");
             return "生成 PDF 失败：服务端没有配置对象存储，暂时用不了这个功能。"
                     + "请不要告诉用户「已生成」，可以改为把内容直接写在回答里。";
@@ -96,17 +82,12 @@ public class PDFGenerationTool {
             ObjectMetadata metadata = new ObjectMetadata();
             metadata.setContentType("application/pdf");
             metadata.setContentLength(bytes.length);
-            client().putObject(properties.getBucket(), objectKey, new ByteArrayInputStream(bytes), metadata);
+            oss.get().putObject(oss.bucket(), objectKey, new ByteArrayInputStream(bytes), metadata);
 
-            // 文件名是模型给的，多半带中文（「一周食谱.pdf」），而中文直接进 URL 是非法字符：
-            // 浏览器多半会自己兜住，但链接一旦被复制到别处（聊天软件、邮件客户端）就未必了。
-            // ResourceDownloadTool 早就为此编码过，这条路当时漏了。
-            //
-            // 用 encodePath 而不是 encodePathSegment：objectKey 是 "pdf/xxx_名字.pdf" 这种
-            // 带斜杠的形式，而 encodePathSegment 会把斜杠也编成 %2F，等于毁掉目录结构。
-            // 注意只编 URL——OSS 的 objectKey 是字面量键，必须保持原样，编了就对不上了
-            String url = "https://" + properties.getBucket() + "." + endpointHost + "/"
-                    + UriUtils.encodePath(objectKey, StandardCharsets.UTF_8);
+            // 链接的拼法（含那两层编码讲究）统一在 AliyunOssClient#publicUrl 里，
+            // 和头像那条路共用一份——两条路各拼一次的话，哪天要改（比如加 CDN 域名）
+            // 很容易只改一边
+            String url = oss.publicUrl(objectKey);
             log.info("[PDFGenerationTool] 已生成 PDF：{}（{} 字节）", url, bytes.length);
 
             // 归档到资料库。放在 return 之前、且不参与返回值——
@@ -125,15 +106,6 @@ public class PDFGenerationTool {
         }
     }
 
-    @PreDestroy
-    public void close() {
-        OSS client = this.ossClient;
-        if (client != null) {
-            client.shutdown();
-            log.info("[PDFGenerationTool] OSS 客户端已关闭");
-        }
-    }
-
     /**
      * 中文字体。
      *
@@ -147,24 +119,5 @@ public class PDFGenerationTool {
      */
     private static PdfFont cjkFont() throws java.io.IOException {
         return PdfFontFactory.createFont("STSongStd-Light", "UniGB-UCS2-H");
-    }
-
-    /** 第一次用到时才建客户端，之后复用。 */
-    private OSS client() {
-        OSS local = this.ossClient;
-        if (local == null) {
-            synchronized (this) {
-                if (this.ossClient == null) {
-                    // 显式带上 https：SDK 在 endpoint 不带协议头时默认走 http，
-                    // 而 OSS 的公网接入点现在是要求 https 的，默认值会直接连不上
-                    this.ossClient = new OSSClientBuilder().build("https://" + endpointHost,
-                            properties.getAccessKeyId(), properties.getAccessKeySecret());
-                    log.info("[PDFGenerationTool] 已创建 OSS 客户端：bucket={} endpoint={}",
-                            properties.getBucket(), endpointHost);
-                }
-                local = this.ossClient;
-            }
-        }
-        return local;
     }
 }

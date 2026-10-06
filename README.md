@@ -175,7 +175,7 @@ npm run build
 
 | 配置项 | 对应的功能 |
 | --- | --- |
-| `aliyun.oss.access-key-id` / `-secret` | 生成 PDF 并回下载链接 |
+| `aliyun.oss.access-key-id` / `-secret` | 生成 PDF 并回下载链接、**上传用户头像**（两者共用同一个 OSS 客户端）。不配的话 PDF 工具不注册、头像也传不了 |
 | `searchapi.api-key` | 联网搜索 |
 | `spring.mail.*` + `purify.auth.mail.enabled=true` | 真实发送验证码邮件；否则只在日志里打印验证码，注册流程照样走得通 |
 | `purify.rag.bailian.access-key-id` / `-secret` | 知识库页的「百炼同步」卡片 |

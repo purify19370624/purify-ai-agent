@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import * as authApi from './api/auth.js'
+import { looksLikeEmail } from './emailRules.js'
 import { message, rawMessage, resolveMessage } from './i18n/index.js'
 
 /**
@@ -85,6 +86,14 @@ export function useVerifyCode(purpose) {
     const address = email.value.trim()
     if (!address) {
       error.value = message('auth.code.needEmail')
+      return
+    }
+    // 形状不对就别发这次请求了。
+    // 后端也挡（error.auth.emailInvalid），但那要等一次网络往返；而且在这之前，
+    // 一个漏了 @ 的地址会一路走到 SMTP 才炸，用户拿到的是「发送失败，请稍后重试」——
+    // 一句指向服务端的话，而他只是少打了一个 @
+    if (!looksLikeEmail(address)) {
+      error.value = message('auth.emailInvalid')
       return
     }
 

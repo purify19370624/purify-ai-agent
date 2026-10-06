@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import AuthShell from '../components/AuthShell.vue'
 import * as authApi from '../api/auth.js'
 import { useVerifyCode } from '../useVerifyCode.js'
+import { looksLikeEmail } from '../emailRules.js'
 import { message, rawMessage, resolveMessage } from '../i18n/index.js'
 
 /**
@@ -50,6 +51,14 @@ const formErrorText = computed(() => resolveMessage(formError.value))
  */
 const passwordMismatch = computed(() => confirm.value.length > 0 && password.value !== confirm.value)
 
+/**
+ * 邮箱填了、但看着不像个邮箱。
+ *
+ * 空着不算「格式不对」——那是「还没填」，两件事分开：填第一格的时候立刻标红
+ * 只会让人以为自己做错了什么。规则本身在 `emailRules.js`，和后端同一套。
+ */
+const emailInvalid = computed(() => email.value.trim().length > 0 && !looksLikeEmail(email.value))
+
 const canSubmit = computed(
   () =>
     !submitting.value &&
@@ -57,6 +66,7 @@ const canSubmit = computed(
     Boolean(password.value) &&
     Boolean(email.value.trim()) &&
     Boolean(codeValue.value.trim()) &&
+    !emailInvalid.value &&
     !passwordMismatch.value,
 )
 
@@ -64,6 +74,13 @@ async function submit() {
   if (submitting.value) return
   formError.value = null
 
+  // 邮箱排在最前面：它是这一页第一格，而且后面几步都以「这个地址能收到码」为前提。
+  // 正常路径下 canSubmit 已经把它挡住了，这一条是兜底——
+  // 在输入框里按回车触发的隐式提交不一定经过那个 disabled 的按钮
+  if (!looksLikeEmail(email.value)) {
+    formError.value = message('auth.emailInvalid')
+    return
+  }
   if (passwordMismatch.value) {
     formError.value = message('auth.register.mismatch')
     return
@@ -97,7 +114,13 @@ async function submit() {
   <AuthShell :title="$t('auth.register.title')" :subtitle="$t('auth.register.subtitle')">
     <form @submit.prevent="submit">
       <label class="field">
-        <span class="field-label">{{ $t('auth.register.email') }}</span>
+        <span class="field-label">
+          {{ $t('auth.register.email') }}
+          <!-- 就地提示，和下面「两次密码不一致」是同一个写法：不拦着用户继续填，
+               只把「这一格现在看着不对」说出来。`.field-hint` 是灰色小字而不是红字，
+               因为「还没打完」也会命中这里 -->
+          <span v-if="emailInvalid" class="field-hint">{{ $t('auth.emailInvalid') }}</span>
+        </span>
         <span class="field-row">
           <input
             v-model="email"

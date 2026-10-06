@@ -98,14 +98,18 @@ public class ToolConfig {
     /**
      * PDF 生成工具。
      *
-     * <p>这里无条件创建，但 {@code aliyun.oss.*} 没配齐时它不会被放进工具列表（见下面的汇总方法）——
-     * 之所以还是要成 Bean，是因为它持有 OSS 客户端，需要容器在关闭时调到 {@code @PreDestroy}。
-     * 客户端本身是懒创建的，所以「建了但没用」不会有任何网络开销。
+     * <p>这里无条件创建，但 {@code aliyun.oss.*} 没配齐时它不会被放进工具列表（见下面的汇总方法）。
+     * 之所以还是要成 Bean，是因为它是个完整的工具实现，注册与否是一个独立的决定——
+     * 混在创建里会让「为什么这个工具没出现」变成要读两处才能回答的问题。
+     *
+     * <p>它**不再持有 OSS 客户端**：客户端已经抽成共用的 {@link AliyunOssClient}，
+     * 由后者在容器关闭时统一关掉（原先这里有个 {@code @PreDestroy}，现在归那边管——
+     * 留着的话它会顺手把头像上传用的连接一起掐掉）。
      */
     @Bean
-    public PDFGenerationTool pdfGenerationTool(AliyunOssProperties aliyunOssProperties,
+    public PDFGenerationTool pdfGenerationTool(AliyunOssClient ossClient,
                                                ResourceRecorder resourceRecorder) {
-        return new PDFGenerationTool(aliyunOssProperties, resourceRecorder);
+        return new PDFGenerationTool(ossClient, resourceRecorder);
     }
 
     /**
@@ -133,7 +137,7 @@ public class ToolConfig {
             ResourceDownloadTool resourceDownloadTool,
             PDFGenerationTool pdfGenerationTool,
             SearchApiProperties searchApiProperties,
-            AliyunOssProperties aliyunOssProperties,
+            AliyunOssClient ossClient,
             ObjectProvider<List<McpSyncClient>> mcpClients) {
 
         List<Object> tools = new ArrayList<>(List.of(
@@ -142,7 +146,7 @@ public class ToolConfig {
                 webScrapingTool,
                 resourceDownloadTool));
 
-        if (aliyunOssProperties.isConfigured()) {
+        if (ossClient.isConfigured()) {
             tools.add(pdfGenerationTool);
         } else {
             log.warn("[ToolConfig] 未注册「生成 PDF」：aliyun.oss 的 endpoint / bucket / "

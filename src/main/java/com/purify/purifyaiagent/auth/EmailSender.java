@@ -1,6 +1,7 @@
 package com.purify.purifyaiagent.auth;
 
 import com.purify.purifyaiagent.config.AuthProperties;
+import com.purify.purifyaiagent.exception.ApiException;
 import com.purify.purifyaiagent.i18n.MessageResolver;
 import com.purify.purifyaiagent.i18n.Messages;
 import lombok.extern.slf4j.Slf4j;
@@ -53,9 +54,14 @@ public class EmailSender {
         // 清理前后空白，避免 "xxx@qq.com " 这种地址导致 SMTP 报错
         email = email == null ? null : email.trim();
 
-        // 基础邮箱格式校验
-        if (!StringUtils.hasText(email) || !email.contains("@")) {
-            throw new IllegalArgumentException("邮箱地址格式不正确");
+        // 形状兜底。正常路径上 VerifyCodeService / AuthService 已经挡住了，
+        // 走到这里只说明有调用方绕过了那两个入口。
+        //
+        // **用 ApiException 而不是 IllegalArgumentException**：后者没有对应的异常处理器，
+        // 用户拿到的是 500；而且原先那句话是硬编码中文，英文界面上会突然冒出一句中文。
+        // 规则也不自己写一份——两处各写一条，正是这次要消掉的东西
+        if (!UserRepository.looksLikeEmail(email)) {
+            throw ApiException.authInvalid("error.auth.emailInvalid");
         }
 
         // 邮件是**给用户看的**，所以它也跟着语言走。语言在请求线程上取一次

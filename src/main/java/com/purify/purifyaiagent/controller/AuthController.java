@@ -183,12 +183,17 @@ public class AuthController {
      * <p>返回刷新后的用户信息（和 {@code /me} 同一个结构），前端直接拿它更新本地那份，
      * 不用再问一次服务端。
      *
-     * <p><b>先存新的、再删旧的</b>，顺序不能反：反过来的话，万一新图写盘失败，
+     * <p><b>先存新的、再删旧的</b>，顺序不能反：反过来的话，万一新图上传失败，
      * 用户就落得一个头像被删、新的又没存上的状态——而重传一次本来是可以救回来的。
-     * 代价是失败时会在磁盘上留一个孤儿文件，那比用户丢头像轻得多。
+     * 代价是失败时会在 bucket 里留一个孤儿对象，那比用户丢头像轻得多。
      *
      * <p>删旧图失败只记日志（见 {@code AvatarStorage#deleteQuietly}），
      * 不影响本次更换的结果。
+     *
+     * <p>注意这里传进 {@code deleteQuietly} 的可能是**改版之前留下的相对地址**
+     * （{@code /files/avatar/xxx.jpg}）：那种值不会被删（它不在 OSS 上），
+     * 旧文件继续留在本地磁盘上由 {@code StaticResourceConfig} 的旧映射提供。
+     * 这就是「不做数据迁移」在这个接口上的表现。
      */
     @PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @RequireLogin
